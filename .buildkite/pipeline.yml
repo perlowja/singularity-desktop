@@ -61,11 +61,26 @@ steps:
       SCRIPT
       chmod +x /tmp/bk-build.sh
 
+      set +e
       docker run --rm \
         -v "$$PWD":/workdir \
         -v /tmp/bk-build.sh:/bk-build.sh:ro \
         ubuntu:26.04 \
         bash /bk-build.sh
+      BUILD_RC=$$?
+      set -e
+
+      # The container runs as root, so files it creates under the bind-mounted
+      # checkout are root-owned. The buildkite-agent host user (unprivileged)
+      # needs to be able to clean this checkout up for the next build — fix
+      # ownership back unconditionally, even if the build itself failed.
+      echo "--- :broom: restoring checkout ownership"
+      docker run --rm -v "$$PWD":/workdir alpine chown -R "$$(id -u):$$(id -g)" /workdir
+
+      if [ "$$BUILD_RC" -ne 0 ]; then
+        echo "🚨 build failed (exit $$BUILD_RC)"
+        exit "$$BUILD_RC"
+      fi
 
       echo "--- :package: artifact"
       ls -lh singularity-opt.tgz

@@ -1,0 +1,72 @@
+env:
+  BUILDKITE_GIT_SUBMODULES: "true"
+
+steps:
+  - label: ":gear: singularity-desktop meson build (arm64, native aarch64)"
+    key: "build_arm64"
+    agents:
+      queue: "arm64"
+    timeout_in_minutes: 90
+    command: |
+      set -euo pipefail
+      echo "--- :git: checkout info"
+      git log -1 --format='commit=%H date=%ci'
+      git submodule status | head -30
+
+      echo "--- :docker: build (ubuntu:26.04 arm64, matches build-singularity.sh)"
+      cat > /tmp/bk-build.sh <<'SCRIPT'
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -q
+      apt-get install -y --no-install-recommends \
+          ca-certificates git golang-go \
+          valac meson ninja-build pkg-config gettext \
+          libgtk-4-dev libadwaita-1-dev libgtk4-layer-shell-dev \
+          libwayland-dev wayland-protocols \
+          libvte-2.91-gtk4-dev libgtksourceview-5-dev \
+          libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+          gstreamer1.0-plugins-good gstreamer1.0-pipewire \
+          libpulse-dev libpolkit-gobject-1-dev libpolkit-agent-1-dev \
+          libjson-glib-dev libpeas-2-dev libpipewire-0.3-dev \
+          libgee-0.8-dev libgtk-4-unix-print-dev libsoup-3.0-dev \
+          libdrm-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
+          build-essential
+
+      # vetro host tool (UI .vetro -> .ui transpiler) — required by 15 subproject
+      # meson.build files (singularity-calculator, singularity-files, etc).
+      git clone --depth 1 https://github.com/singularityos-lab/vetro /tmp/vetro
+      ( cd /tmp/vetro && go build -o /usr/local/bin/vetro . )
+      vetro --version 2>/dev/null || true
+
+      cd /workdir
+      meson setup build --prefix=/opt/singularity --libdir=lib --buildtype=release
+      ninja -C build
+
+      if [ -d subprojects/labwc ]; then
+        meson setup build-labwc subprojects/labwc --prefix=/opt/singularity \
+            --buildtype=release -Dxwayland=enabled --force-fallback-for=wlroots-0.20
+        ninja -C build-labwc
+      fi
+
+      rm -rf /workdir/stage
+      DESTDIR=/workdir/stage meson install -C build
+      [ -d build-labwc ] && DESTDIR=/workdir/stage meson install -C build-labwc || true
+
+      test -x "/workdir/stage/opt/singularity/bin/singularity-desktop"
+      test -x "/workdir/stage/opt/singularity/bin/singularity-labwc-session"
+
+      cd /workdir/stage
+      tar -czf /workdir/singularity-opt.tgz opt/singularity
+      echo "STAGED $(du -h /workdir/singularity-opt.tgz | cut -f1)"
+      SCRIPT
+      chmod +x /tmp/bk-build.sh
+
+      docker run --rm \
+        -v "$PWD":/workdir \
+        -v /tmp/bk-build.sh:/bk-build.sh:ro \
+        ubuntu:26.04 \
+        bash /bk-build.sh
+
+      echo "--- :package: artifact"
+      ls -lh singularity-opt.tgz
+      buildkite-agent artifact upload "singularity-opt.tgz"

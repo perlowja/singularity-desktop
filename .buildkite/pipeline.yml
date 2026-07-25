@@ -21,6 +21,7 @@ steps:
       apt-get install -y --no-install-recommends \
           ca-certificates git golang-go \
           valac meson ninja-build pkg-config gettext \
+          libgirepository1.0-dev gobject-introspection \
           libgtk-4-dev libadwaita-1-dev libgtk4-layer-shell-dev \
           libwayland-dev wayland-protocols \
           libvte-2.91-gtk4-dev libgtksourceview-5-dev \

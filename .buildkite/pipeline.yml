@@ -57,12 +57,12 @@ steps:
 
       cd /workdir/stage
       tar -czf /workdir/singularity-opt.tgz opt/singularity
-      echo "STAGED $(du -h /workdir/singularity-opt.tgz | cut -f1)"
+      echo "STAGED $$(du -h /workdir/singularity-opt.tgz | cut -f1)"
       SCRIPT
       chmod +x /tmp/bk-build.sh
 
       docker run --rm \
-        -v "$PWD":/workdir \
+        -v "$$PWD":/workdir \
         -v /tmp/bk-build.sh:/bk-build.sh:ro \
         ubuntu:26.04 \
         bash /bk-build.sh

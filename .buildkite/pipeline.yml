@@ -38,6 +38,7 @@ steps:
           libtracker-sparql-3.0-dev libwebkitgtk-6.0-dev libxcb-ewmh-dev \
           libxcb-icccm4-dev libxkbcommon-dev libpam0g-dev \
           libgcrypt20-dev libsodium-dev \
+          hwdata libxcb-dri3-dev xwayland \
           build-essential
 
       # vetro host tool (UI .vetro -> .ui transpiler) — required by 15 subproject

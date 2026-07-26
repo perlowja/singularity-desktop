@@ -32,6 +32,11 @@ steps:
           libgee-0.8-dev libsoup-3.0-dev \
           libdrm-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
           libupower-glib-dev libnm-dev sassc \
+          libatspi2.0-dev libcmocka-dev libdbusmenu-glib-dev libfontconfig-dev \
+          libgoa-1.0-dev libinput-dev libpng-dev librsvg2-dev libsecret-1-dev \
+          libxml2-dev libpixman-1-dev libpoppler-glib-dev libsystemd-dev \
+          libtracker-sparql-3.0-dev libwebkitgtk-6.0-dev libxcb-ewmh-dev \
+          libxcb-icccm-dev libxkbcommon-dev \
           build-essential
 
       # vetro host tool (UI .vetro -> .ui transpiler) — required by 15 subproject

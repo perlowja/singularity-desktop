@@ -36,7 +36,8 @@ steps:
           libgoa-1.0-dev libinput-dev libpng-dev librsvg2-dev libsecret-1-dev \
           libxml2-dev libpixman-1-dev libpoppler-glib-dev libsystemd-dev \
           libtracker-sparql-3.0-dev libwebkitgtk-6.0-dev libxcb-ewmh-dev \
-          libxcb-icccm4-dev libxkbcommon-dev \
+          libxcb-icccm4-dev libxkbcommon-dev libpam0g-dev \
+          libgcrypt20-dev libsodium-dev \
           build-essential
 
       # vetro host tool (UI .vetro -> .ui transpiler) — required by 15 subproject

@@ -402,5 +402,20 @@
       <summary>Graphics rendering mode</summary>
       <description>auto, hardware or software. Software is a safe fallback for GPUs whose driver crashes the hardware renderer.</description>
     </key>
+    <key name="sensors-gpu-zone" type="s">
+      <default>"TZGT"</default>
+      <summary>Thermal zone reported as GPU</summary>
+      <description>Name of the /sys/class/thermal zone shown as the GPU temperature. On CIX Sky1 this is TZGT; the hottest remaining zone is shown as CPU. Empty disables the GPU reading.</description>
+    </key>
+    <key name="sensors-show-frequency" type="b">
+      <default>true</default>
+      <summary>Show CPU clock next to temperature</summary>
+      <description>Show the highest current cpufreq across all policies beside the temperatures in the Sensors panel item.</description>
+    </key>
+    <key name="sensors-interval-seconds" type="i">
+      <default>2</default>
+      <summary>Sensor refresh interval</summary>
+      <description>Seconds between sensor reads. Polling is skipped entirely while the widget is not mapped, so an unseen panel costs nothing.</description>
+    </key>
   </schema>
 </schemalist>

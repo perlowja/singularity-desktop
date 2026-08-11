@@ -13,6 +13,11 @@ steps:
       git log -1 --format='commit=%H date=%ci'
       git submodule status | head -30
 
+      echo "--- :adhesive_bandage: downstream patches"
+      # These carry fixes that are NOT upstream yet (layer-shell close path,
+      # sensors panel item). A patch that fails to apply fails the build.
+      bash scripts/apply-downstream-patches.sh
+
       echo "--- :docker: build (ubuntu:26.04 arm64, matches build-singularity.sh)"
       cat > /tmp/bk-build.sh <<'SCRIPT'
       set -euo pipefail
@@ -92,6 +97,16 @@ steps:
         echo "🚨 build failed (exit $$BUILD_RC)"
         exit "$$BUILD_RC"
       fi
+
+      echo "--- :mag: verify the payload carries the close-path fix"
+      # A build log, a filename and a version string all looked fine while the
+      # payload was unpatched. The only honest check is the binary itself.
+      if ! readelf --dyn-syms stage/opt/singularity/bin/singularity-desktop \
+           | grep -q gtk_widget_unrealize; then
+        echo "🚨 payload is UNPATCHED -- it would reproduce the layer-shell crash" >&2
+        exit 1
+      fi
+      echo "payload verified: carries gtk_widget_unrealize (PR #15)"
 
       echo "--- :package: artifact"
       ls -lh singularity-opt.tgz

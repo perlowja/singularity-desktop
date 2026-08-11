@@ -24,3 +24,8 @@ build-installtest/
 Thumbs.db
 builddir/
 /default.png
+# build outputs
+/singularity-opt.tgz
+/stage/
+/build/
+/build-labwc/

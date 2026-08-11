@@ -1,7 +1,7 @@
 From eecceadbfd3ed2cfac8fbb32bf4e33d7d98f93e6 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Tue, 11 Aug 2026 04:29:03 +0000
-Subject: [PATCH 2/3] shell(panel): add a Sensors panel item for CPU/GPU
+Subject: [PATCH 2/4] shell(panel): add a Sensors panel item for CPU/GPU
  temperature and clock
 
 Reads sysfs directly -- thermal zones for temperature, cpufreq for clock. On

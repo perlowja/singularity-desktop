@@ -1,0 +1,370 @@
+diff --git a/meson.build b/meson.build
+index 4958979..23b827d 100644
+--- a/meson.build
++++ b/meson.build
+@@ -208,6 +208,7 @@ if get_option('system')
+     'src/system/timezone_util.vala',
+     'src/system/input_source_util.vala',
+     'src/system/resource_monitor.vala',
++    'src/system/sensor.vala',
+     'src/system/night_light_manager.vala',
+     'src/system/autostart_manager.vala',
+     'src/system/hardware_info.vala',
+diff --git a/src/system/sensor.vala b/src/system/sensor.vala
+new file mode 100644
+index 0000000..0abc07d
+--- /dev/null
++++ b/src/system/sensor.vala
+@@ -0,0 +1,352 @@
++using GLib;
++
++namespace Singularity {
++
++    public enum SensorKind {
++        CPU,
++        GPU,
++        SYSTEM
++    }
++
++    /** One temperature sensor, as reported by the kernel. */
++    public class SensorReading : Object {
++        public string label { get; private set; }
++        public int millidegrees { get; private set; }
++        public SensorKind kind { get; private set; }
++
++        public SensorReading(string label, int millidegrees, SensorKind kind) {
++            this.label = label;
++            this.millidegrees = millidegrees;
++            this.kind = kind;
++        }
++    }
++
++    /**
++     * Reads temperatures and CPU clocks from sysfs.
++     *
++     * SOURCES. /sys/class/hwmon is primary: it is the generic kernel interface
++     * and covers x86 (coretemp, k10temp, zenpower) plus most GPUs (amdgpu,
++     * nouveau, i915). /sys/class/thermal is the fallback, because a number of
++     * ARM SoCs expose temperatures only there.
++     *
++     * CLASSIFICATION IS AN ALLOW-LIST, AND THAT IS THE WHOLE POINT.
++     * An earlier version treated any unrecognised sensor as a CPU sensor. That
++     * is wrong on ordinary hardware, and measurably so -- checked against four
++     * machines, every one of them reported something that was not the CPU:
++     *
++     *   Ryzen 8700G desktop   picked "enp1s0 PHY" 68 C   (a NIC; CPU was 59 C)
++     *   Threadripper          picked "enp1s0 PHY" 80 C   (a NIC; CPU was 67 C)
++     *   Comet Lake laptop     picked "pch_cometlake" 43 C (chipset; CPU 36 C)
++     *   Dell workstation      picked "dell_smm" 85 C     (SMM probe; CPU 47 C)
++     *
++     * An unknown sensor is therefore SYSTEM, never CPU. `cpu_millidegrees` is
++     * -1 unless a sensor was positively identified as a CPU, so a caller can
++     * tell "no CPU sensor here" from "the CPU is cold" instead of confidently
++     * displaying a network chip as the processor temperature.
++     *
++     * SoCs whose zone names no generic list can know (CIX Sky1 uses TZB0/TZB1
++     * for its big cluster and TZGT for graphics) are handled by cpu_hint and
++     * gpu_hint, which a distribution can set without patching this file.
++     *
++     * NOT COVERED: NVIDIA's proprietary driver publishes no hwmon node, so
++     * those GPUs are invisible here and need NVML instead. Sensors read this
++     * way are also unitless beyond millidegrees Celsius -- no power rail is
++     * exposed on many boards (no power*_input, curr*_input or energy*_uj), so
++     * this deliberately offers no wattage.
++     */
++    public class SensorMonitor : Object {
++        private const int DEFAULT_INTERVAL_SEC = 2;
++
++        private const string HWMON_DIR = "/sys/class/hwmon";
++        private const string THERMAL_DIR = "/sys/class/thermal";
++        private const string CPUFREQ_DIR = "/sys/devices/system/cpu/cpufreq";
++
++        // Kernel driver names, not product names.
++        private const string[] CPU_CHIPS = {
++            "coretemp", "k10temp", "zenpower", "x86_pkg_temp",
++            "cpu_thermal", "cpu-thermal", "soc_thermal", "soc-thermal",
++            "armada_thermal", "imx_thermal", "sun4i-ts", "scpi-sensors"
++        };
++        // hwmon label text that identifies a CPU package or core.
++        private const string[] CPU_LABELS = {
++            "package id", "tctl", "tdie", "tccd", "core "
++        };
++        private const string[] GPU_CHIPS = {
++            "amdgpu", "radeon", "nouveau", "i915", "xe",
++            "panfrost", "panthor", "mali", "lima", "v3d", "vc4"
++        };
++
++        private uint _timer_id = 0;
++        private int _interval_sec = DEFAULT_INTERVAL_SEC;
++        private SensorReading[] _readings = {};
++        private int[] _clocks_khz = {};
++
++        /** Hottest sensor positively identified as a CPU, or -1 if none. */
++        public int cpu_millidegrees { get; private set; default = -1; }
++        /** Hottest sensor identified as a GPU, or -1 if none. */
++        public int gpu_millidegrees { get; private set; default = -1; }
++        /** Hottest sensor that is neither, or -1. Use when there is no CPU. */
++        public int system_millidegrees { get; private set; default = -1; }
++        /** Highest current CPU clock in kHz, or -1 when cpufreq is absent. */
++        public int cpu_khz { get; private set; default = -1; }
++        /** False when the machine exposes nothing readable. */
++        public bool available { get; private set; default = false; }
++
++        /**
++         * Substring identifying the CPU/GPU sensor on hardware the allow-list
++         * cannot know. Empty by default: a distribution sets these, and no
++         * single vendor's naming is baked in here.
++         */
++        public string cpu_hint { get; set; default = ""; }
++        public string gpu_hint { get; set; default = ""; }
++
++        public signal void updated();
++
++        public SensorMonitor() {}
++
++        public void start(int interval_sec = DEFAULT_INTERVAL_SEC) {
++            if (_timer_id != 0) return;
++            _interval_sec = interval_sec > 0 ? interval_sec : DEFAULT_INTERVAL_SEC;
++            refresh();
++            _timer_id = Timeout.add_seconds(_interval_sec, () => {
++                refresh();
++                return Source.CONTINUE;
++            });
++        }
++
++        public void stop() {
++            if (_timer_id != 0) {
++                Source.remove(_timer_id);
++                _timer_id = 0;
++            }
++        }
++
++        public override void dispose() {
++            stop();
++            base.dispose();
++        }
++
++        /** Every sensor read on the last refresh, in discovery order. */
++        public SensorReading[] readings() {
++            return _readings;
++        }
++
++        /** Current CPU clocks in kHz, highest first. */
++        public int[] clocks_khz() {
++            return _clocks_khz;
++        }
++
++        private static string? read_first_line(string path) {
++            string contents;
++            try {
++                if (!FileUtils.get_contents(path, out contents)) {
++                    return null;
++                }
++            } catch (FileError e) {
++                return null;
++            }
++            return contents.strip();
++        }
++
++        private static bool matches_any(string text, string[] needles) {
++            string lower = text.down();
++            foreach (string needle in needles) {
++                if (lower.contains(needle)) {
++                    return true;
++                }
++            }
++            return false;
++        }
++
++        private SensorKind classify(string chip, string? label) {
++            string joined = (label != null && label != "")
++                ? chip + " " + label
++                : chip;
++
++            if (gpu_hint != "" && joined.contains(gpu_hint)) {
++                return SensorKind.GPU;
++            }
++            if (cpu_hint != "" && joined.contains(cpu_hint)) {
++                return SensorKind.CPU;
++            }
++            if (matches_any(chip, GPU_CHIPS)) {
++                return SensorKind.GPU;
++            }
++            if (matches_any(chip, CPU_CHIPS)) {
++                return SensorKind.CPU;
++            }
++            if (label != null && matches_any(label, CPU_LABELS)) {
++                return SensorKind.CPU;
++            }
++            // Unknown is SYSTEM on purpose. See the class comment.
++            return SensorKind.SYSTEM;
++        }
++
++        private SensorReading[] collect_hwmon() {
++            SensorReading[] found = {};
++            Dir dir;
++            try {
++                dir = Dir.open(HWMON_DIR, 0);
++            } catch (FileError e) {
++                return found;
++            }
++            string? node;
++            while ((node = dir.read_name()) != null) {
++                string base_path = HWMON_DIR + "/" + node;
++                string chip = read_first_line(base_path + "/name") ?? node;
++                Dir inner;
++                try {
++                    inner = Dir.open(base_path, 0);
++                } catch (FileError e) {
++                    continue;
++                }
++                string? entry;
++                while ((entry = inner.read_name()) != null) {
++                    if (!entry.has_prefix("temp") || !entry.has_suffix("_input")) {
++                        continue;
++                    }
++                    string? raw = read_first_line(base_path + "/" + entry);
++                    if (raw == null) {
++                        continue;
++                    }
++                    int millidegrees = int.parse(raw);
++                    if (millidegrees <= 0) {
++                        continue;
++                    }
++                    string stem = entry.substring(0, entry.length - "_input".length);
++                    string? label = read_first_line(base_path + "/" + stem + "_label");
++                    string name = (label != null && label != "")
++                        ? "%s %s".printf(chip, label)
++                        : chip;
++                    found += new SensorReading(name, millidegrees, classify(chip, label));
++                }
++            }
++            return found;
++        }
++
++        private SensorReading[] collect_thermal() {
++            SensorReading[] found = {};
++            Dir dir;
++            try {
++                dir = Dir.open(THERMAL_DIR, 0);
++            } catch (FileError e) {
++                return found;
++            }
++            string? node;
++            while ((node = dir.read_name()) != null) {
++                if (!node.has_prefix("thermal_zone")) {
++                    continue;
++                }
++                string base_path = THERMAL_DIR + "/" + node;
++                string? zone_type = read_first_line(base_path + "/type");
++                string? raw = read_first_line(base_path + "/temp");
++                if (zone_type == null || raw == null) {
++                    continue;
++                }
++                int millidegrees = int.parse(raw);
++                if (millidegrees <= 0) {
++                    continue;
++                }
++                found += new SensorReading(zone_type, millidegrees, classify(zone_type, null));
++            }
++            return found;
++        }
++
++        private int[] collect_clocks() {
++            int[] found = {};
++            Dir dir;
++            try {
++                dir = Dir.open(CPUFREQ_DIR, 0);
++            } catch (FileError e) {
++                // cpufreq is absent on many virtual machines and on some x86
++                // without a scaling driver; /proc/cpuinfo still reports a MHz.
++                string? cpuinfo = read_first_line("/proc/cpuinfo");
++                if (cpuinfo != null) {
++                    foreach (string line in cpuinfo.split("\n")) {
++                        if (!line.down().has_prefix("cpu mhz")) {
++                            continue;
++                        }
++                        string[] parts = line.split(":");
++                        if (parts.length < 2) {
++                            continue;
++                        }
++                        int mhz = (int) double.parse(parts[1].strip());
++                        if (mhz > 0) {
++                            found += mhz * 1000;
++                        }
++                    }
++                }
++                return found;
++            }
++            string? node;
++            while ((node = dir.read_name()) != null) {
++                if (!node.has_prefix("policy")) {
++                    continue;
++                }
++                string? raw = read_first_line(CPUFREQ_DIR + "/" + node + "/scaling_cur_freq");
++                if (raw == null) {
++                    continue;
++                }
++                int khz = int.parse(raw);
++                if (khz > 0) {
++                    found += khz;
++                }
++            }
++            return found;
++        }
++
++        public void refresh() {
++            SensorReading[] found = collect_hwmon();
++            if (found.length == 0) {
++                found = collect_thermal();
++            }
++            _readings = found;
++
++            int hottest_cpu = -1;
++            int hottest_gpu = -1;
++            int hottest_system = -1;
++            foreach (SensorReading reading in found) {
++                switch (reading.kind) {
++                    case SensorKind.CPU:
++                        if (reading.millidegrees > hottest_cpu) {
++                            hottest_cpu = reading.millidegrees;
++                        }
++                        break;
++                    case SensorKind.GPU:
++                        if (reading.millidegrees > hottest_gpu) {
++                            hottest_gpu = reading.millidegrees;
++                        }
++                        break;
++                    default:
++                        if (reading.millidegrees > hottest_system) {
++                            hottest_system = reading.millidegrees;
++                        }
++                        break;
++                }
++            }
++
++            int[] clocks = collect_clocks();
++            // Highest first, so a caller can take element 0 as "the" clock.
++            if (clocks.length > 1) {
++                for (int i = 0; i < clocks.length; i++) {
++                    for (int j = i + 1; j < clocks.length; j++) {
++                        if (clocks[j] > clocks[i]) {
++                            int swap = clocks[i];
++                            clocks[i] = clocks[j];
++                            clocks[j] = swap;
++                        }
++                    }
++                }
++            }
++            _clocks_khz = clocks;
++
++            cpu_millidegrees = hottest_cpu;
++            gpu_millidegrees = hottest_gpu;
++            system_millidegrees = hottest_system;
++            cpu_khz = clocks.length > 0 ? clocks[0] : -1;
++            available = found.length > 0;
++
++            updated();
++        }
++    }
++}

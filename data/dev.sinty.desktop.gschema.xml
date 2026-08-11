@@ -461,5 +461,10 @@
       <summary>Sensor refresh interval</summary>
       <description>Seconds between sensor reads. Polling is skipped entirely while the widget is not mapped, and the detail list is rebuilt only while its popover is open.</description>
     </key>
+    <key name="sensors-cpu-zone" type="s">
+      <default>"TZ"</default>
+      <summary>Sensor treated as CPU</summary>
+      <description>Substring identifying the CPU sensor on hardware the driver allow-list cannot recognise, matched against the hwmon chip name or thermal zone type. Upstream this defaults to empty; NCZ-OS sets "TZ" so the CIX Sky1 cluster zones (TZB0/TZB1/TZM0/TZM1) are read as CPU. The GPU hint is checked first, so TZGT is still classified as the GPU.</description>
+    </key>
   </schema>
 </schemalist>

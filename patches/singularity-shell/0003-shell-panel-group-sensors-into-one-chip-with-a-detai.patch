@@ -1,7 +1,7 @@
 From 4fa4042fe9a33c2010bb10b5d93b8682a3049e4d Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Tue, 11 Aug 2026 14:20:33 +0000
-Subject: [PATCH 3/3] shell(panel): group sensors into one chip with a detail
+Subject: [PATCH 3/4] shell(panel): group sensors into one chip with a detail
  popover, and make it portable
 
 Replaces the first cut, which put temperature and clock directly on the bar.

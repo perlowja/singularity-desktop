@@ -13,12 +13,30 @@ steps:
       git log -1 --format='commit=%H date=%ci'
       git submodule status | head -30
 
+      echo "--- :arrows_counterclockwise: sync submodules to upstream tips"
+      # Build against upstream's CURRENT code, not a frozen pin. The pin had
+      # rotted badly: it sat at 397dc46 (2026-07-05), a commit upstream had
+      # since REWRITTEN OUT of main entirely, so every build reproduced a
+      # snapshot that no longer existed upstream and no current patch could
+      # apply to it. --remote follows the branch named in .gitmodules (main).
+      git submodule update --remote --checkout --recursive
+      echo "--- :bookmark: exact commits built (record these; --remote floats)"
+      git submodule status --recursive | sed 's/^/  /'
+
       echo "--- :adhesive_bandage: downstream patches"
       # These carry fixes that are NOT upstream yet (layer-shell close path,
       # sensors panel item). A patch that fails to apply fails the build.
       bash scripts/apply-downstream-patches.sh
 
-      echo "--- :docker: build (ubuntu:26.04 arm64, matches build-singularity.sh)"
+      echo "--- :docker: build (debian:testing arm64 -- MUST match the target distro)"
+      # NOT ubuntu:26.04. An Ubuntu-built payload links different sonames than
+      # Debian forky provides, and the result does not merely warn -- it fails to
+      # start. Measured 2026-08-11 on O6N: labwc died with "libdisplay-info.so.5:
+      # cannot open shared object file", greetd crash-looped, and the board had no
+      # desktop at all. build/build-singularity.sh in cix-installer already
+      # documents this (Forky has libsodium.so.26, Ubuntu builds want .so.23) and
+      # switches to debian:testing on its own; this pipeline had drifted from it
+      # while still claiming to match it.
       cat > /tmp/bk-build.sh <<'SCRIPT'
       set -euo pipefail
       export DEBIAN_FRONTEND=noninteractive
@@ -81,7 +99,7 @@ steps:
       docker run --rm \
         -v "$$PWD":/workdir \
         -v /tmp/bk-build.sh:/bk-build.sh:ro \
-        ubuntu:26.04 \
+        debian:testing \
         bash /bk-build.sh
       BUILD_RC=$$?
       set -e

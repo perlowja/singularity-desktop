@@ -46,6 +46,34 @@
       <default>'center'</default>
       <summary>Dock alignment (start, center, end)</summary>
     </key>
+    <key name="panel-layout-left" type="as">
+      <default>['overview', 'workspaces', 'app-title', 'global-menu']</default>
+      <summary>Items in the left panel section</summary>
+    </key>
+    <key name="panel-layout-center" type="as">
+      <default>['tiling-position']</default>
+      <summary>Items in the center panel section</summary>
+    </key>
+    <key name="panel-layout-right" type="as">
+      <default>['system', 'notifications', 'clock']</default>
+      <summary>Items in the right panel section</summary>
+    </key>
+    <key name="dock-layout-left" type="as">
+      <default>['overview']</default>
+      <summary>Items in the left dock section</summary>
+    </key>
+    <key name="dock-layout-center" type="as">
+      <default>['applications']</default>
+      <summary>Items in the center dock section</summary>
+    </key>
+    <key name="dock-layout-right" type="as">
+      <default>['system', 'clock']</default>
+      <summary>Items in the right dock section</summary>
+    </key>
+    <key name="bar-layout-edit-mode" type="b">
+      <default>false</default>
+      <summary>Edit the panel and dock layout</summary>
+    </key>
     <key name="panel-fusion" type="b">
       <default>false</default>
       <summary>Merge top panel into dock</summary>
@@ -125,6 +153,11 @@
       <default>false</default>
       <summary>Developer Mode</summary>
       <description>Whether the Developer settings page is shown.</description>
+    </key>
+    <key name="bootloader-unlock-allowed" type="b">
+      <default>false</default>
+      <summary>Allow Bootloader Unlock</summary>
+      <description>Mirrors the bootloader unlock consent shown in Settings. This key is display state only and controls nothing: the authoritative consent flag is held by the privileged atom-recovery agent, which stores it where recovery and the bootloader can read it without a user session.</description>
     </key>
     <key name="singularity-theme" type="s">
       <default>''</default>
@@ -225,6 +258,17 @@
       <default>false</default>
       <summary>Enable Tiling</summary>
       <description>Whether tiling window management is enabled.</description>
+    </key>
+    <key name="tiling-layout" type="s">
+      <default>'grid'</default>
+      <summary>Tiling Layout</summary>
+      <description>Window arrangement used by automatic tiling.</description>
+    </key>
+    <key name="tiling-column-width" type="i">
+      <range min="35" max="100"/>
+      <default>60</default>
+      <summary>Scrolling Tiling Column Width</summary>
+      <description>Width of each scrolling tiling column as a percentage of the work area.</description>
     </key>
     <key name="preview-features-enabled" type="b">
       <default>false</default>
@@ -404,18 +448,18 @@
     </key>
     <key name="sensors-gpu-zone" type="s">
       <default>"TZGT"</default>
-      <summary>Thermal zone reported as GPU</summary>
-      <description>Name of the /sys/class/thermal zone shown as the GPU temperature. On CIX Sky1 this is TZGT; the hottest remaining zone is shown as CPU. Empty disables the GPU reading.</description>
+      <summary>Sensor treated as GPU</summary>
+      <description>Overrides GPU detection for hardware the driver-name heuristic misses. Matched against the hwmon chip name or thermal zone type. Upstream this should default to empty; NCZ-OS defaults it to TZGT because the CIX Sky1 graphics thermal zone carries no name a generic heuristic can recognise.</description>
     </key>
     <key name="sensors-show-frequency" type="b">
       <default>true</default>
-      <summary>Show CPU clock next to temperature</summary>
-      <description>Show the highest current cpufreq across all policies beside the temperatures in the Sensors panel item.</description>
+      <summary>Show CPU clock beside the temperature</summary>
+      <description>Show the highest current CPU clock next to the temperature in the Sensors panel item.</description>
     </key>
     <key name="sensors-interval-seconds" type="i">
       <default>2</default>
       <summary>Sensor refresh interval</summary>
-      <description>Seconds between sensor reads. Polling is skipped entirely while the widget is not mapped, so an unseen panel costs nothing.</description>
+      <description>Seconds between sensor reads. Polling is skipped entirely while the widget is not mapped, and the detail list is rebuilt only while its popover is open.</description>
     </key>
   </schema>
 </schemalist>

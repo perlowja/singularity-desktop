@@ -12,10 +12,10 @@ index 4958979..23b827d 100644
      'src/system/hardware_info.vala',
 diff --git a/src/system/sensor.vala b/src/system/sensor.vala
 new file mode 100644
-index 0000000..0abc07d
+index 0000000..d8b6a67
 --- /dev/null
 +++ b/src/system/sensor.vala
-@@ -0,0 +1,352 @@
+@@ -0,0 +1,509 @@
 +using GLib;
 +
 +namespace Singularity {
@@ -66,14 +66,25 @@ index 0000000..0abc07d
 +     * for its big cluster and TZGT for graphics) are handled by cpu_hint and
 +     * gpu_hint, which a distribution can set without patching this file.
 +     *
-+     * NOT COVERED: NVIDIA's proprietary driver publishes no hwmon node, so
-+     * those GPUs are invisible here and need NVML instead. Sensors read this
-+     * way are also unitless beyond millidegrees Celsius -- no power rail is
-+     * exposed on many boards (no power*_input, curr*_input or energy*_uj), so
-+     * this deliberately offers no wattage.
++     * NVIDIA. Their driver publishes NO hwmon node -- verified on both the
++     * proprietary build (595.58) and the open kernel module (595.71); neither
++     * creates one under /sys/class/hwmon or the DRM device. So NVIDIA GPUs are
++     * queried through nvidia-smi instead, ASYNCHRONOUSLY and only when the
++     * binary is present. Measured cost is 14-16 ms per query on an RTX 4500,
++     * i.e. under 1% duty cycle at the default 2 s interval, and the call never
++     * blocks the caller's thread. libnvidia-ml is also present on such systems,
++     * so this could move to NVML later without a fork; nvidia-smi is chosen
++     * first because it needs no new link-time dependency.
++     *
++     * POWER. Most boards expose no power rail at all (no power*_input,
++     * curr*_input or energy*_uj), so no wattage is invented for them and
++     * gpu_power_milliwatts stays -1. Where the hardware really does report it
++     * -- NVIDIA via nvidia-smi -- it is passed through as measured.
 +     */
 +    public class SensorMonitor : Object {
-+        private const int DEFAULT_INTERVAL_SEC = 2;
++        // Public because start() uses it as a default argument, and Vala requires
++        // a default value to be at least as accessible as the method.
++        public const int DEFAULT_INTERVAL_SEC = 2;
 +
 +        private const string HWMON_DIR = "/sys/class/hwmon";
 +        private const string THERMAL_DIR = "/sys/class/thermal";
@@ -83,6 +94,13 @@ index 0000000..0abc07d
 +        private const string[] CPU_CHIPS = {
 +            "coretemp", "k10temp", "zenpower", "x86_pkg_temp",
 +            "cpu_thermal", "cpu-thermal", "soc_thermal", "soc-thermal",
++            // Tegra/Thor-class boards name their zones this way.
++            "cpu-therm", "tj-thermal",
++            // Bare "cpu" catches the per-core Qualcomm naming (cpu0_0_thermal,
++            // cpu1_2_thermal, ...) and anything else that spells it out; a
++            // sensor with "cpu" in its name is a CPU sensor in practice.
++            // "cluster" is the CPU cluster zone on those same SoCs.
++            "cpu", "cluster",
 +            "armada_thermal", "imx_thermal", "sun4i-ts", "scpi-sensors"
 +        };
 +        // hwmon label text that identifies a CPU package or core.
@@ -91,13 +109,23 @@ index 0000000..0abc07d
 +        };
 +        private const string[] GPU_CHIPS = {
 +            "amdgpu", "radeon", "nouveau", "i915", "xe",
-+            "panfrost", "panthor", "mali", "lima", "v3d", "vc4"
++            "panfrost", "panthor", "mali", "lima", "v3d", "vc4",
++            // Tegra/Thor expose the integrated GPU as a thermal zone.
++            "gpu-thermal", "gpu-therm",
++            // Bare "gpu" also catches Qualcomm's GPU subsystem zones
++            // (gpuss_0_thermal .. gpuss_7_thermal, Adreno). Checked before the
++            // CPU list, so "gpuss" cannot be mistaken for a CPU sensor.
++            "gpu"
 +        };
 +
 +        private uint _timer_id = 0;
 +        private int _interval_sec = DEFAULT_INTERVAL_SEC;
 +        private SensorReading[] _readings = {};
 +        private int[] _clocks_khz = {};
++        private SensorReading[] _nvidia_readings = {};
++        private bool _nvidia_present = false;
++        private bool _nvidia_checked = false;
++        private bool _nvidia_in_flight = false;
 +
 +        /** Hottest sensor positively identified as a CPU, or -1 if none. */
 +        public int cpu_millidegrees { get; private set; default = -1; }
@@ -109,6 +137,8 @@ index 0000000..0abc07d
 +        public int cpu_khz { get; private set; default = -1; }
 +        /** False when the machine exposes nothing readable. */
 +        public bool available { get; private set; default = false; }
++        /** GPU power draw where the hardware reports it, else -1. */
++        public int gpu_power_milliwatts { get; private set; default = -1; }
 +
 +        /**
 +         * Substring identifying the CPU/GPU sensor on hardware the allow-list
@@ -313,10 +343,137 @@ index 0000000..0abc07d
 +            return found;
 +        }
 +
++
++        /**
++         * True when this machine has an NVIDIA driver and nvidia-smi. Checked
++         * once: the answer cannot change without a driver reload, and probing
++         * every tick would spawn a process just to learn "no".
++         */
++        private bool nvidia_available() {
++            if (_nvidia_checked) {
++                return _nvidia_present;
++            }
++            _nvidia_checked = true;
++            _nvidia_present = FileUtils.test("/proc/driver/nvidia", FileTest.IS_DIR)
++                && Environment.find_program_in_path("nvidia-smi") != null;
++            return _nvidia_present;
++        }
++
++        private void parse_nvidia(string? csv) {
++            SensorReading[] found = {};
++            int power_milliwatts = -1;
++            if (csv == null) {
++                _nvidia_readings = found;
++                gpu_power_milliwatts = -1;
++                return;
++            }
++            foreach (string line in csv.split("\n")) {
++                if (line.strip() == "") {
++                    continue;
++                }
++                string[] fields = line.split(",");
++                if (fields.length < 2) {
++                    continue;
++                }
++                string name = fields[0].strip();
++                int celsius = int.parse(fields[1].strip());
++                if (celsius <= 0) {
++                    continue;
++                }
++                found += new SensorReading(name, celsius * 1000, SensorKind.GPU);
++                if (fields.length >= 4) {
++                    // Fields can read "[N/A]" -- an integrated Thor GPU reports
++                    // no SM clock. double.parse yields 0 there, which the
++                    // guard below discards.
++                    double watts = double.parse(fields[3].strip());
++                    if (watts > 0.0) {
++                        int milliwatts = (int) (watts * 1000.0);
++                        if (milliwatts > power_milliwatts) {
++                            power_milliwatts = milliwatts;
++                        }
++                    }
++                }
++            }
++            _nvidia_readings = found;
++            gpu_power_milliwatts = power_milliwatts;
++        }
++
++        /**
++         * Query nvidia-smi off-thread. Spawned via Subprocess.newv rather than a
++         * shell, and never waited on: the result lands on a later tick, so a
++         * slow or wedged driver cannot stall the UI.
++         */
++        private void refresh_nvidia() {
++            if (!nvidia_available() || _nvidia_in_flight) {
++                return;
++            }
++            string[] argv = {
++                "nvidia-smi",
++                "--query-gpu=name,temperature.gpu,clocks.sm,power.draw",
++                "--format=csv,noheader,nounits"
++            };
++            try {
++                Subprocess proc = new Subprocess.newv(
++                    argv, SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_SILENCE);
++                _nvidia_in_flight = true;
++                proc.communicate_utf8_async.begin(null, null, (obj, res) => {
++                    string? stdout_text = null;
++                    try {
++                        proc.communicate_utf8_async.end(res, out stdout_text, null);
++                    } catch (Error e) {
++                        stdout_text = null;
++                    }
++                    parse_nvidia(stdout_text);
++                    _nvidia_in_flight = false;
++                });
++            } catch (Error e) {
++                // Driver present but the tool failed: stop asking.
++                _nvidia_present = false;
++                _nvidia_in_flight = false;
++            }
++        }
++
++        /**
++         * Whether two sensor names refer to the same thing.
++         *
++         * Compared with separators and case removed, because the SAME sensor is
++         * routinely spelled differently by the two interfaces. MEASURED on a
++         * Raspberry Pi 5: hwmon calls it "cpu_thermal" and the thermal zone
++         * calls it "cpu-thermal", so an exact comparison listed one 53 C sensor
++         * twice.
++         */
++        private static bool same_sensor(string a, string b) {
++            return a.down().replace("-", "").replace("_", "").replace(" ", "")
++                == b.down().replace("-", "").replace("_", "").replace(" ", "");
++        }
++
 +        public void refresh() {
++            // BOTH sources, always -- not hwmon-with-thermal-as-fallback.
++            // MEASURED on an NVIDIA IGX Thor dev kit: hwmon exists there, but
++            // contains only a Super-I/O chip, INA power monitors, the NIC and
++            // the NVMe -- no CPU or GPU temperature at all. The CPU and GPU
++            // live in /sys/class/thermal as cpu-thermal and gpu-thermal. A
++            // "use thermal only when hwmon is empty" rule therefore reported NO
++            // CPU on that machine, because hwmon was non-empty but useless.
++            // Thermal zones that merely duplicate an hwmon chip are dropped.
 +            SensorReading[] found = collect_hwmon();
-+            if (found.length == 0) {
-+                found = collect_thermal();
++            foreach (SensorReading zone in collect_thermal()) {
++                bool duplicate = false;
++                foreach (SensorReading existing in found) {
++                    if (same_sensor(existing.label, zone.label)) {
++                        duplicate = true;
++                        break;
++                    }
++                }
++                if (!duplicate) {
++                    found += zone;
++                }
++            }
++            // NVIDIA readings arrive asynchronously, so this merges whatever the
++            // last query returned rather than waiting for a fresh one.
++            refresh_nvidia();
++            foreach (SensorReading reading in _nvidia_readings) {
++                found += reading;
 +            }
 +            _readings = found;
 +

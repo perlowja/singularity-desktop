@@ -1,4 +1,4 @@
-From 404473b8e0390ce2be0592313f59d919d0733220 Mon Sep 17 00:00:00 2001
+From 9268381d070236825b2c1acc3f1b6163bb5ba5eb Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Tue, 11 Aug 2026 15:47:18 +0000
 Subject: [PATCH 4/4] shell(panel): render sensors from libsingularity-system
@@ -16,15 +16,15 @@ classifies by an allow-list and reports -1 when it found no CPU sensor, so
 the widget can fall back deliberately instead of a NIC or chipset being
 displayed as the processor.
 ---
- src/components/panel/panel.vala | 378 +++++++++-----------------------
+ src/components/panel/panel.vala | 397 ++++++++++----------------------
  src/core/system_monitor.vala    |   2 +
- 2 files changed, 107 insertions(+), 273 deletions(-)
+ 2 files changed, 126 insertions(+), 273 deletions(-)
 
 diff --git a/src/components/panel/panel.vala b/src/components/panel/panel.vala
-index 42eca13..7e828c6 100644
+index 42eca13..061b0d8 100644
 --- a/src/components/panel/panel.vala
 +++ b/src/components/panel/panel.vala
-@@ -5,91 +5,27 @@ using Gee;
+@@ -5,91 +5,31 @@ using Gee;
  namespace Singularity {
  
      /**
@@ -111,6 +111,10 @@ index 42eca13..7e828c6 100644
 -        // MenuButton is CONTAINED, not inherited: GtkMenuButton is declared
 -        // final in GTK4, so subclassing it fails to compile outright
 -        // ("unknown type name GtkMenuButtonClass").
++        // Sensor counts vary by two orders of magnitude across platforms, so
++        // the detail list is capped rather than unbounded.
++        private const int MAX_ROWS_PER_GROUP = 6;
++
          private MenuButton button;
          private Label summary_label;
          private Box detail_box;
@@ -127,7 +131,7 @@ index 42eca13..7e828c6 100644
              valign = Align.CENTER;
              add_css_class("sensors-indicator");
  
-@@ -107,247 +43,143 @@ namespace Singularity {
+@@ -107,247 +47,158 @@ namespace Singularity {
              detail_box.margin_bottom = 10;
              detail_box.margin_start = 12;
              detail_box.margin_end = 12;
@@ -431,10 +435,25 @@ index 42eca13..7e828c6 100644
              add_heading(title);
 -            foreach (var r in readings) {
 -                if (r.kind == kind) add_row(r.label, fmt_c(r.millicelsius));
++            // Cap the rows. Sensor count varies enormously by platform: an ARM
++            // dev board reports 5, a Qualcomm SC8280XP reports 55. Listing all
++            // of them turns the popover into a wall of near-identical numbers,
++            // so show the first few and state how many were left out.
++            int shown = 0;
++            int hidden = 0;
 +            foreach (SensorReading reading in monitor.readings()) {
-+                if (reading.kind == kind) {
-+                    add_row(reading.label, format_celsius(reading.millidegrees));
++                if (reading.kind != kind) {
++                    continue;
 +                }
++                if (shown < MAX_ROWS_PER_GROUP) {
++                    add_row(reading.label, format_celsius(reading.millidegrees));
++                    shown++;
++                } else {
++                    hidden++;
++                }
++            }
++            if (hidden > 0) {
++                add_row(_("%d more").printf(hidden), "");
              }
          }
  

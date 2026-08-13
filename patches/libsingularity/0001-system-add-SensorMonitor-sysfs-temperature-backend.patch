@@ -1,21 +1,38 @@
+From 15eeb79147209d384d119f5716e5d0cd9b5ec627 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Thu, 13 Aug 2026 03:23:19 +0000
+Subject: [PATCH] system: add SensorMonitor sysfs temperature backend
+
+Headless sysfs temperature/clock/fan/power backend for libsingularity-system,
+with fixture tests for the classification and fallback rules.
+
+Upstream review: singularityos-lab/libsingularity#9
+---
+ meson.build            |   1 +
+ src/system/sensor.vala | 774 +++++++++++++++++++++++++++++++++++++++++
+ tests/sensor_test.vala | 213 ++++++++++++
+ 3 files changed, 988 insertions(+)
+ create mode 100644 src/system/sensor.vala
+ create mode 100644 tests/sensor_test.vala
+
 diff --git a/meson.build b/meson.build
-index 4958979..23b827d 100644
+index 4958979..fd16cf1 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -208,6 +208,7 @@ if get_option('system')
-     'src/system/timezone_util.vala',
-     'src/system/input_source_util.vala',
-     'src/system/resource_monitor.vala',
-+    'src/system/sensor.vala',
+@@ -211,6 +211,7 @@ if get_option('system')
      'src/system/night_light_manager.vala',
      'src/system/autostart_manager.vala',
      'src/system/hardware_info.vala',
++    'src/system/sensor.vala',
+   )
+ 
+   libsingularity_system = shared_library('singularity-system',
 diff --git a/src/system/sensor.vala b/src/system/sensor.vala
 new file mode 100644
-index 0000000..d8b6a67
+index 0000000..eb18a41
 --- /dev/null
 +++ b/src/system/sensor.vala
-@@ -0,0 +1,509 @@
+@@ -0,0 +1,774 @@
 +using GLib;
 +
 +namespace Singularity {
@@ -39,8 +56,30 @@ index 0000000..d8b6a67
 +        }
 +    }
 +
++    /** One power rail, in milliwatts. */
++    public class PowerReading : Object {
++        public string label { get; private set; }
++        public int milliwatts { get; private set; }
++
++        public PowerReading(string label, int milliwatts) {
++            this.label = label;
++            this.milliwatts = milliwatts;
++        }
++    }
++
++    /** One fan, as reported by hwmon. */
++    public class FanReading : Object {
++        public string label { get; private set; }
++        public int rpm { get; private set; }
++
++        public FanReading(string label, int rpm) {
++            this.label = label;
++            this.rpm = rpm;
++        }
++    }
++
 +    /**
-+     * Reads temperatures and CPU clocks from sysfs.
++     * Reads temperatures, fan speeds and CPU clocks from sysfs.
 +     *
 +     * SOURCES. /sys/class/hwmon is primary: it is the generic kernel interface
 +     * and covers x86 (coretemp, k10temp, zenpower) plus most GPUs (amdgpu,
@@ -89,6 +128,22 @@ index 0000000..d8b6a67
 +        private const string HWMON_DIR = "/sys/class/hwmon";
 +        private const string THERMAL_DIR = "/sys/class/thermal";
 +        private const string CPUFREQ_DIR = "/sys/devices/system/cpu/cpufreq";
++        private const string CPUINFO_PATH = "/proc/cpuinfo";
++
++        /**
++         * Prefix applied to every path this class reads.
++         *
++         * Empty in normal use, so the paths are exactly the ones above. Tests
++         * point it at a fixture tree instead: the classification rules are the
++         * part of this class most likely to be wrong on hardware nobody has to
++         * hand, and they are only testable against synthetic sysfs.
++         */
++        public string sysfs_root { get; set; default = ""; }
++
++        private string hwmon_dir() { return sysfs_root + HWMON_DIR; }
++        private string thermal_dir() { return sysfs_root + THERMAL_DIR; }
++        private string cpufreq_dir() { return sysfs_root + CPUFREQ_DIR; }
++        private string cpuinfo_path() { return sysfs_root + CPUINFO_PATH; }
 +
 +        // Kernel driver names, not product names.
 +        private const string[] CPU_CHIPS = {
@@ -121,7 +176,11 @@ index 0000000..d8b6a67
 +        private uint _timer_id = 0;
 +        private int _interval_sec = DEFAULT_INTERVAL_SEC;
 +        private SensorReading[] _readings = {};
++        // Sysfs-derived readings only, without the NVIDIA set merged in.
++        private SensorReading[] _base_readings = {};
 +        private int[] _clocks_khz = {};
++        private FanReading[] _fans = {};
++        private PowerReading[] _power = {};
 +        private SensorReading[] _nvidia_readings = {};
 +        private bool _nvidia_present = false;
 +        private bool _nvidia_checked = false;
@@ -184,6 +243,44 @@ index 0000000..d8b6a67
 +            return _clocks_khz;
 +        }
 +
++        /**
++         * Fans that are actually turning.
++         *
++         * Zero-RPM entries are omitted: a board commonly exposes more fan
++         * headers than it has fans, and those read 0 forever. MEASURED on an
++         * IGX Thor dev kit -- f75308 presents four headers of which two are
++         * populated (1342 and 1046 RPM) and two read 0. Listing the empty ones
++         * would imply two dead fans. A genuinely stopped fan is therefore also
++         * hidden, which is the deliberate trade: an absent fan and an idle one
++         * are indistinguishable through this interface.
++         */
++        public FanReading[] fans() {
++            return _fans;
++        }
++
++        /**
++         * Power rails the hardware actually measures.
++         *
++         * Two sources, both real readings rather than estimates:
++         *   * hwmon power*_input, a direct figure in microwatts. An AMD GPU
++         *     reports its package power this way (measured: amdgpu PPT 59.2 W).
++         *   * INA-style shunt monitors, which publish bus voltage and current
++         *     per channel but no power field. Volts x amps on the SAME channel
++         *     is measurement, not synthesis, and it cross-checks: on an IGX
++         *     Thor board channel 1 reads 12.08 V and 140 mA = 1.69 W, which is
++         *     exactly what nvidia-smi independently reports for that GPU.
++         *
++         * DELIBERATELY NOT INCLUDED: Intel RAPL. /sys/class/powercap/.../
++         * energy_uj is root-only on current kernels (restricted after the
++         * Platypus side-channel work), so a desktop session simply cannot read
++         * it -- measured here as an empty value rather than a number. It also
++         * reports cumulative energy, so watts would require differencing over
++         * time. Nothing is reported rather than guessed.
++         */
++        public PowerReading[] power_rails() {
++            return _power;
++        }
++
 +        private static string? read_first_line(string path) {
 +            string contents;
 +            try {
@@ -234,13 +331,13 @@ index 0000000..d8b6a67
 +            SensorReading[] found = {};
 +            Dir dir;
 +            try {
-+                dir = Dir.open(HWMON_DIR, 0);
++                dir = Dir.open(hwmon_dir(), 0);
 +            } catch (FileError e) {
 +                return found;
 +            }
 +            string? node;
 +            while ((node = dir.read_name()) != null) {
-+                string base_path = HWMON_DIR + "/" + node;
++                string base_path = hwmon_dir() + "/" + node;
 +                string chip = read_first_line(base_path + "/name") ?? node;
 +                Dir inner;
 +                try {
@@ -276,7 +373,7 @@ index 0000000..d8b6a67
 +            SensorReading[] found = {};
 +            Dir dir;
 +            try {
-+                dir = Dir.open(THERMAL_DIR, 0);
++                dir = Dir.open(thermal_dir(), 0);
 +            } catch (FileError e) {
 +                return found;
 +            }
@@ -285,7 +382,7 @@ index 0000000..d8b6a67
 +                if (!node.has_prefix("thermal_zone")) {
 +                    continue;
 +                }
-+                string base_path = THERMAL_DIR + "/" + node;
++                string base_path = thermal_dir() + "/" + node;
 +                string? zone_type = read_first_line(base_path + "/type");
 +                string? raw = read_first_line(base_path + "/temp");
 +                if (zone_type == null || raw == null) {
@@ -300,38 +397,167 @@ index 0000000..d8b6a67
 +            return found;
 +        }
 +
++        private FanReading[] collect_fans() {
++            FanReading[] found = {};
++            Dir dir;
++            try {
++                dir = Dir.open(hwmon_dir(), 0);
++            } catch (FileError e) {
++                return found;
++            }
++            string? node;
++            while ((node = dir.read_name()) != null) {
++                string base_path = hwmon_dir() + "/" + node;
++                string chip = read_first_line(base_path + "/name") ?? node;
++                Dir inner;
++                try {
++                    inner = Dir.open(base_path, 0);
++                } catch (FileError e) {
++                    continue;
++                }
++                string? entry;
++                while ((entry = inner.read_name()) != null) {
++                    if (!entry.has_prefix("fan") || !entry.has_suffix("_input")) {
++                        continue;
++                    }
++                    string? raw = read_first_line(base_path + "/" + entry);
++                    if (raw == null) {
++                        continue;
++                    }
++                    int rpm = int.parse(raw);
++                    if (rpm <= 0) {
++                        continue;
++                    }
++                    string stem = entry.substring(0, entry.length - "_input".length);
++                    string? label = read_first_line(base_path + "/" + stem + "_label");
++                    string name = (label != null && label != "")
++                        ? "%s %s".printf(chip, label)
++                        : "%s %s".printf(chip, stem);
++                    found += new FanReading(name, rpm);
++                }
++            }
++            return found;
++        }
++
++        private PowerReading[] collect_power() {
++            PowerReading[] found = {};
++            Dir dir;
++            try {
++                dir = Dir.open(hwmon_dir(), 0);
++            } catch (FileError e) {
++                return found;
++            }
++            string? node;
++            while ((node = dir.read_name()) != null) {
++                string base_path = hwmon_dir() + "/" + node;
++                string chip = read_first_line(base_path + "/name") ?? node;
++
++                // 1. A direct power reading, in microwatts.
++                Dir inner;
++                try {
++                    inner = Dir.open(base_path, 0);
++                } catch (FileError e) {
++                    continue;
++                }
++                // Channels already covered by a direct powerN_input reading.
++                // Shunt drivers (INA219/ina2xx) expose BOTH that and inN/currN
++                // for one physical rail, so synthesising V x I for such a
++                // channel would report the same rail twice under two labels.
++                bool[] direct_channel = new bool[9];
++                string? entry;
++                while ((entry = inner.read_name()) != null) {
++                    if (!entry.has_prefix("power") || !entry.has_suffix("_input")) {
++                        continue;
++                    }
++                    string? raw = read_first_line(base_path + "/" + entry);
++                    if (raw == null) {
++                        continue;
++                    }
++                    int64 microwatts = int64.parse(raw);
++                    if (microwatts <= 0) {
++                        continue;
++                    }
++                    string stem = entry.substring(0, entry.length - "_input".length);
++                    int direct_ch = int.parse(stem.substring("power".length));
++                    if (direct_ch >= 1 && direct_ch <= 8) {
++                        direct_channel[direct_ch] = true;
++                    }
++                    string? label = read_first_line(base_path + "/" + stem + "_label");
++                    string name = (label != null && label != "")
++                        ? "%s %s".printf(chip, label)
++                        : chip;
++                    found += new PowerReading(name, (int) (microwatts / 1000));
++                }
++
++                // 2. Shunt monitors: bus volts x channel amps. hwmon numbers
++                //    both from 1, so channel N pairs inN_input with currN_input.
++                for (int ch = 1; ch <= 8; ch++) {
++                    if (direct_channel[ch]) {
++                        continue;
++                    }
++                    string? volt_raw = read_first_line("%s/in%d_input".printf(base_path, ch));
++                    string? curr_raw = read_first_line("%s/curr%d_input".printf(base_path, ch));
++                    if (volt_raw == null || curr_raw == null) {
++                        continue;
++                    }
++                    int millivolts = int.parse(volt_raw);
++                    int milliamps = int.parse(curr_raw);
++                    if (millivolts <= 0 || milliamps <= 0) {
++                        continue;
++                    }
++                    string? label = read_first_line("%s/curr%d_label".printf(base_path, ch));
++                    string name = (label != null && label != "")
++                        ? "%s %s".printf(chip, label)
++                        : "%s ch%d".printf(chip, ch);
++                    found += new PowerReading(name, (millivolts * milliamps) / 1000);
++                }
++            }
++            return found;
++        }
++
++        /**
++         * CPU MHz as reported by /proc/cpuinfo.
++         *
++         * Used when cpufreq yields nothing -- either because the directory is
++         * absent (common on virtual machines and on x86 with no scaling driver)
++         * or because it exists but is empty / has no readable scaling_cur_freq.
++         */
++        private int[] clocks_from_cpuinfo() {
++            int[] found = {};
++            string? cpuinfo = read_first_line(cpuinfo_path());
++            if (cpuinfo == null) {
++                return found;
++            }
++            foreach (string line in cpuinfo.split("\n")) {
++                if (!line.down().has_prefix("cpu mhz")) {
++                    continue;
++                }
++                string[] parts = line.split(":");
++                if (parts.length < 2) {
++                    continue;
++                }
++                int mhz = (int) double.parse(parts[1].strip());
++                if (mhz > 0) {
++                    found += mhz * 1000;
++                }
++            }
++            return found;
++        }
++
 +        private int[] collect_clocks() {
 +            int[] found = {};
 +            Dir dir;
 +            try {
-+                dir = Dir.open(CPUFREQ_DIR, 0);
++                dir = Dir.open(cpufreq_dir(), 0);
 +            } catch (FileError e) {
-+                // cpufreq is absent on many virtual machines and on some x86
-+                // without a scaling driver; /proc/cpuinfo still reports a MHz.
-+                string? cpuinfo = read_first_line("/proc/cpuinfo");
-+                if (cpuinfo != null) {
-+                    foreach (string line in cpuinfo.split("\n")) {
-+                        if (!line.down().has_prefix("cpu mhz")) {
-+                            continue;
-+                        }
-+                        string[] parts = line.split(":");
-+                        if (parts.length < 2) {
-+                            continue;
-+                        }
-+                        int mhz = (int) double.parse(parts[1].strip());
-+                        if (mhz > 0) {
-+                            found += mhz * 1000;
-+                        }
-+                    }
-+                }
-+                return found;
++                return clocks_from_cpuinfo();
 +            }
 +            string? node;
 +            while ((node = dir.read_name()) != null) {
 +                if (!node.has_prefix("policy")) {
 +                    continue;
 +                }
-+                string? raw = read_first_line(CPUFREQ_DIR + "/" + node + "/scaling_cur_freq");
++                string? raw = read_first_line(cpufreq_dir() + "/" + node + "/scaling_cur_freq");
 +                if (raw == null) {
 +                    continue;
 +                }
@@ -339,6 +565,12 @@ index 0000000..d8b6a67
 +                if (khz > 0) {
 +                    found += khz;
 +                }
++            }
++            // A present cpufreq directory can still yield nothing: no policy*
++            // entries, or policies whose scaling_cur_freq is unreadable. Fall
++            // back on the same source as the absent-directory case.
++            if (found.length == 0) {
++                return clocks_from_cpuinfo();
 +            }
 +            return found;
 +        }
@@ -354,6 +586,14 @@ index 0000000..d8b6a67
 +                return _nvidia_present;
 +            }
 +            _nvidia_checked = true;
++            // A fixture root describes a machine that is not this one, so the
++            // host's NVIDIA stack must not leak into it: nvidia-smi would report
++            // real GPUs on a real NVIDIA box and make the fixture's results
++            // depend on where the tests happen to run.
++            if (sysfs_root != "") {
++                _nvidia_present = false;
++                return _nvidia_present;
++            }
 +            _nvidia_present = FileUtils.test("/proc/driver/nvidia", FileTest.IS_DIR)
 +                && Environment.find_program_in_path("nvidia-smi") != null;
 +            return _nvidia_present;
@@ -425,6 +665,13 @@ index 0000000..d8b6a67
 +                    }
 +                    parse_nvidia(stdout_text);
 +                    _nvidia_in_flight = false;
++                    // Publish what just arrived. Without this a one-shot
++                    // refresh() never reports an NVIDIA GPU, and a timer-driven
++                    // caller sees it only on the following tick. This merges the
++                    // cached sysfs readings rather than calling refresh() again,
++                    // so completing a query cannot start another one and does not
++                    // re-walk every hwmon and thermal node.
++                    publish_state();
 +                });
 +            } catch (Error e) {
 +                // Driver present but the tool failed: stop asking.
@@ -448,6 +695,10 @@ index 0000000..d8b6a67
 +        }
 +
 +        public void refresh() {
++            refresh_internal(true);
++        }
++
++        private void refresh_internal(bool query_nvidia) {
 +            // BOTH sources, always -- not hwmon-with-thermal-as-fallback.
 +            // MEASURED on an NVIDIA IGX Thor dev kit: hwmon exists there, but
 +            // contains only a Super-I/O chip, INA power monitors, the NIC and
@@ -469,9 +720,49 @@ index 0000000..d8b6a67
 +                    found += zone;
 +                }
 +            }
++            // Keep the sysfs-derived set separate from the NVIDIA set: when the
++            // async query lands, publish_state() can merge the two again without
++            // re-walking every hwmon and thermal node.
++            SensorReading[] base_found = found;
++
 +            // NVIDIA readings arrive asynchronously, so this merges whatever the
 +            // last query returned rather than waiting for a fresh one.
-+            refresh_nvidia();
++            if (query_nvidia) {
++                refresh_nvidia();
++            }
++            _base_readings = base_found;
++
++            _fans = collect_fans();
++            _power = collect_power();
++
++            int[] clocks = collect_clocks();
++            // Highest first, so a caller can take element 0 as "the" clock.
++            if (clocks.length > 1) {
++                for (int i = 0; i < clocks.length; i++) {
++                    for (int j = i + 1; j < clocks.length; j++) {
++                        if (clocks[j] > clocks[i]) {
++                            int swap = clocks[i];
++                            clocks[i] = clocks[j];
++                            clocks[j] = swap;
++                        }
++                    }
++                }
++            }
++            _clocks_khz = clocks;
++
++            publish_state();
++        }
++
++        /**
++         * Recompute the published properties from the cached reading sets and
++         * emit updated().
++         *
++         * Split out of refresh_internal() so the asynchronous nvidia-smi
++         * callback can publish its result without re-walking every hwmon and
++         * thermal node -- it merges _base_readings with the NVIDIA set instead.
++         */
++        private void publish_state() {
++            SensorReading[] found = _base_readings;
 +            foreach (SensorReading reading in _nvidia_readings) {
 +                found += reading;
 +            }
@@ -500,28 +791,239 @@ index 0000000..d8b6a67
 +                }
 +            }
 +
-+            int[] clocks = collect_clocks();
-+            // Highest first, so a caller can take element 0 as "the" clock.
-+            if (clocks.length > 1) {
-+                for (int i = 0; i < clocks.length; i++) {
-+                    for (int j = i + 1; j < clocks.length; j++) {
-+                        if (clocks[j] > clocks[i]) {
-+                            int swap = clocks[i];
-+                            clocks[i] = clocks[j];
-+                            clocks[j] = swap;
-+                        }
-+                    }
-+                }
-+            }
-+            _clocks_khz = clocks;
-+
 +            cpu_millidegrees = hottest_cpu;
 +            gpu_millidegrees = hottest_gpu;
 +            system_millidegrees = hottest_system;
-+            cpu_khz = clocks.length > 0 ? clocks[0] : -1;
-+            available = found.length > 0;
++            cpu_khz = _clocks_khz.length > 0 ? _clocks_khz[0] : -1;
++            // Any readable category counts. A VM or a restricted-hwmon setup
++            // can expose clocks, fans or power rails with no temperature at all;
++            // reporting "nothing readable" there would hide real data.
++            available = found.length > 0
++                || _clocks_khz.length > 0
++                || _fans.length > 0
++                || _power.length > 0;
 +
 +            updated();
 +        }
 +    }
++}
+\ No newline at end of file
+diff --git a/tests/sensor_test.vala b/tests/sensor_test.vala
+new file mode 100644
+index 0000000..c7d2de1
+--- /dev/null
++++ b/tests/sensor_test.vala
+@@ -0,0 +1,213 @@
++using GLib;
++
++/*
++ * Fixture tests for SensorMonitor's classification and fallback rules.
++ *
++ * Every case here is a shape that was observed on real hardware and got the
++ * answer wrong at some point. They are written as synthetic sysfs trees because
++ * that is the only way to test eight machines' worth of layouts on one.
++ */
++
++private string fixture_root;
++
++private void write_file(string path, string contents) {
++    string dir = Path.get_dirname(path);
++    assert(DirUtils.create_with_parents(dir, 0755) == 0);
++    try {
++        assert(FileUtils.set_contents(path, contents));
++    } catch (FileError e) {
++        error("fixture write failed: %s", e.message);
++    }
++}
++
++/** Create /sys/class/hwmon/hwmonN with a chip name. */
++private string hwmon_chip(int n, string name) {
++    string dir = Path.build_filename(fixture_root, "sys", "class", "hwmon", "hwmon%d".printf(n));
++    write_file(Path.build_filename(dir, "name"), name + "\n");
++    return dir;
++}
++
++private void hwmon_temp(string chip_dir, int idx, int millidegrees, string? label) {
++    write_file(Path.build_filename(chip_dir, "temp%d_input".printf(idx)),
++               "%d\n".printf(millidegrees));
++    if (label != null) {
++        write_file(Path.build_filename(chip_dir, "temp%d_label".printf(idx)), label + "\n");
++    }
++}
++
++private void thermal_zone(int n, string type, int millidegrees) {
++    string dir = Path.build_filename(fixture_root, "sys", "class", "thermal",
++                                     "thermal_zone%d".printf(n));
++    write_file(Path.build_filename(dir, "type"), type + "\n");
++    write_file(Path.build_filename(dir, "temp"), "%d\n".printf(millidegrees));
++}
++
++private void remove_path(File file) {
++    try {
++        var type = file.query_file_type(FileQueryInfoFlags.NOFOLLOW_SYMLINKS);
++        if (type == FileType.DIRECTORY) {
++            var children = file.enumerate_children(FileAttribute.STANDARD_NAME,
++                                                   FileQueryInfoFlags.NOFOLLOW_SYMLINKS);
++            FileInfo? info;
++            while ((info = children.next_file()) != null) {
++                remove_path(file.get_child(info.get_name()));
++            }
++        }
++        file.delete();
++    } catch (GLib.Error e) {
++        // best effort; the tree lives under /tmp
++    }
++}
++
++private void reset_fixture() {
++    if (fixture_root != null && FileUtils.test(fixture_root, FileTest.EXISTS)) {
++        remove_path(File.new_for_path(fixture_root));
++    }
++    try {
++        fixture_root = DirUtils.make_tmp("singularity-sensor-XXXXXX");
++    } catch (FileError e) {
++        error("cannot create fixture root: %s", e.message);
++    }
++}
++
++private Singularity.SensorMonitor monitor_for_fixture() {
++    var m = new Singularity.SensorMonitor();
++    m.sysfs_root = fixture_root;
++    m.refresh();
++    return m;
++}
++
++/*
++ * A NIC and a chipset sensor must never be reported as the CPU.
++ *
++ * MEASURED: an early version treated any unrecognised sensor as CPU and
++ * displayed "enp1s0 PHY" 68 C on a Ryzen 8700G and "pch_cometlake" on a laptop.
++ */
++private void test_unknown_sensors_are_never_cpu() {
++    reset_fixture();
++    string nic = hwmon_chip(0, "enp1s0");
++    hwmon_temp(nic, 1, 68000, "PHY Temperature");
++    string pch = hwmon_chip(1, "pch_cometlake");
++    hwmon_temp(pch, 1, 43000, null);
++    string cpu = hwmon_chip(2, "k10temp");
++    hwmon_temp(cpu, 1, 59000, "Tctl");
++
++    var m = monitor_for_fixture();
++    assert(m.cpu_millidegrees == 59000);
++}
++
++/*
++ * With no recognised CPU sensor at all, cpu_millidegrees stays -1 rather than
++ * picking the hottest thing in the box.
++ */
++private void test_no_cpu_sensor_reports_minus_one() {
++    reset_fixture();
++    string smm = hwmon_chip(0, "dell_smm");
++    hwmon_temp(smm, 1, 85000, null);
++
++    var m = monitor_for_fixture();
++    assert(m.cpu_millidegrees == -1);
++    assert(m.system_millidegrees == 85000);
++}
++
++/*
++ * hwmon can be non-empty and still contain no CPU or GPU, in which case the
++ * thermal zones must still be read.
++ *
++ * MEASURED on an NVIDIA IGX Thor dev kit: hwmon had Super-I/O, INA rails, the
++ * NIC and the NVMe; cpu-thermal and gpu-thermal were thermal zones. A
++ * hwmon-first-with-fallback design reported no CPU there.
++ */
++private void test_thermal_read_even_when_hwmon_nonempty() {
++    reset_fixture();
++    string sio = hwmon_chip(0, "f75308");
++    hwmon_temp(sio, 1, 30000, null);
++    thermal_zone(0, "cpu-thermal", 42000);
++    thermal_zone(1, "gpu-thermal", 39000);
++
++    var m = monitor_for_fixture();
++    assert(m.cpu_millidegrees == 42000);
++    assert(m.gpu_millidegrees == 39000);
++}
++
++/*
++ * The same sensor spelled two ways is reported once.
++ *
++ * MEASURED on a Raspberry Pi 5: hwmon "cpu_thermal", thermal zone "cpu-thermal".
++ */
++private void test_duplicate_sensor_listed_once() {
++    reset_fixture();
++    string chip = hwmon_chip(0, "cpu_thermal");
++    hwmon_temp(chip, 1, 53000, null);
++    thermal_zone(0, "cpu-thermal", 53000);
++
++    var m = monitor_for_fixture();
++    int cpu_readings = 0;
++    foreach (var r in m.readings()) {
++        if (r.kind == Singularity.SensorKind.CPU) cpu_readings++;
++    }
++    assert(cpu_readings == 1);
++}
++
++/*
++ * A GPU zone whose name starts with "gpu" must not be mistaken for a CPU.
++ *
++ * MEASURED on a Snapdragon SC8280XP: 55 zones, including gpuss_0_thermal for the
++ * Adreno alongside cpu0_0_thermal.
++ */
++private void test_gpuss_is_gpu_not_cpu() {
++    reset_fixture();
++    thermal_zone(0, "cpu5_1_thermal", 42000);
++    thermal_zone(1, "gpuss_3_thermal", 47000);
++
++    var m = monitor_for_fixture();
++    assert(m.cpu_millidegrees == 42000);
++    assert(m.gpu_millidegrees == 47000);
++}
++
++/*
++ * A cpufreq directory that exists but yields nothing must still fall back to
++ * /proc/cpuinfo. The fallback used to live in catch(FileError), so it only ran
++ * when the directory was absent -- an empty one left cpu_khz at -1.
++ */
++private void test_cpufreq_empty_dir_falls_back_to_cpuinfo() {
++    reset_fixture();
++    assert(DirUtils.create_with_parents(
++        Path.build_filename(fixture_root, "sys", "devices", "system", "cpu", "cpufreq"),
++        0755) == 0);
++    write_file(Path.build_filename(fixture_root, "proc", "cpuinfo"),
++               "processor\t: 0\ncpu MHz\t\t: 2000.000\n");
++
++    var m = monitor_for_fixture();
++    assert(m.cpu_khz == 2000000);
++}
++
++/*
++ * available means "something readable", not "a temperature was readable". A VM
++ * or restricted-hwmon setup can expose only a fan.
++ */
++private void test_available_with_fan_but_no_temperature() {
++    reset_fixture();
++    string chip = hwmon_chip(0, "some_fan_controller");
++    write_file(Path.build_filename(chip, "fan1_input"), "1200\n");
++
++    var m = monitor_for_fixture();
++    assert(m.cpu_millidegrees == -1);
++    assert(m.available);
++}
++
++public int main(string[] args) {
++    Test.init(ref args);
++    Test.add_func("/sensor/unknown-never-cpu", test_unknown_sensors_are_never_cpu);
++    Test.add_func("/sensor/no-cpu-is-minus-one", test_no_cpu_sensor_reports_minus_one);
++    Test.add_func("/sensor/thermal-when-hwmon-nonempty", test_thermal_read_even_when_hwmon_nonempty);
++    Test.add_func("/sensor/duplicate-listed-once", test_duplicate_sensor_listed_once);
++    Test.add_func("/sensor/gpuss-is-gpu", test_gpuss_is_gpu_not_cpu);
++    Test.add_func("/sensor/cpufreq-empty-falls-back", test_cpufreq_empty_dir_falls_back_to_cpuinfo);
++    Test.add_func("/sensor/available-with-fan-only", test_available_with_fan_but_no_temperature);
++    int rc = Test.run();
++    if (fixture_root != null && FileUtils.test(fixture_root, FileTest.EXISTS)) {
++        remove_path(File.new_for_path(fixture_root));
++    }
++    return rc;
 +}

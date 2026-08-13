@@ -1,0 +1,85 @@
+From e9efa7a76ab1a46336f9e1add013399004f631a5 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 12 Aug 2026 22:44:38 -0400
+Subject: [PATCH 4/4] shell: dismiss folder overlays when the launcher closes
+
+Opening an app folder creates an AppFolderOverlay, which is its own toplevel
+layer-shell window on the OVERLAY layer. Hiding the launcher therefore does not
+take it down.
+
+Nothing closed it at close time. The only thing that dismisses folder overlays
+is launcher_grid.depopulate(), and that is deferred to an idle timer of
+IDLE_DEPOPULATE_MS -- 45 seconds -- whose purpose is reclaiming grid widgets,
+icon textures and preview buffers. So the overlay stayed on screen for 45s
+after the launcher closed, and if the launcher was reopened inside that window
+the timer was cancelled (overview.vala, reopen branch), leaving the overlay up
+indefinitely.
+
+Split the cheap part out: close_folder_overlays() dismisses the overlays and
+nothing else, and both close paths -- the animated close and the gesture
+dismiss -- call it immediately. depopulate() still does the expensive teardown
+on its idle timer and now delegates the overlay half to the same helper, so
+there is no behaviour change for the memory-reclaim path.
+
+The overlay feature itself is untouched; only the point at which it goes away
+changes.
+---
+ src/components/overview/app_launcher_grid.vala | 15 ++++++++++++++-
+ src/components/overview/overview.vala          |  9 +++++++++
+ 2 files changed, 23 insertions(+), 1 deletion(-)
+
+diff --git a/src/components/overview/app_launcher_grid.vala b/src/components/overview/app_launcher_grid.vala
+index 5125236..d9c2820 100644
+--- a/src/components/overview/app_launcher_grid.vala
++++ b/src/components/overview/app_launcher_grid.vala
+@@ -377,9 +377,22 @@ namespace Singularity {
+             return GLib.Source.CONTINUE;
+         }
+ 
+-        public void depopulate() {
++        /**
++         * Dismiss any open folder overlay without tearing down the grid.
++         *
++         * A folder overlay is its own toplevel layer-shell window, so hiding
++         * the launcher that spawned it leaves it on screen. Closing the
++         * overlays is cheap; dropping the grid contents is not, which is why
++         * depopulate() stays on its idle timer and this can be called
++         * immediately on close.
++         */
++        public void close_folder_overlays() {
+             _folder_overlays.foreach((id, ov) => ov.close_overlay());
+             _folder_overlays.remove_all();
++        }
++
++        public void depopulate() {
++            close_folder_overlays();
+             Widget? c = grid.get_first_child();
+             while (c != null) { Widget nc = c.get_next_sibling(); grid.remove(c); c = nc; }
+         }
+diff --git a/src/components/overview/overview.vala b/src/components/overview/overview.vala
+index eb113cc..5d68694 100644
+--- a/src/components/overview/overview.vala
++++ b/src/components/overview/overview.vala
+@@ -334,6 +334,12 @@ namespace Singularity {
+                     _anim_out_timer = 0;
+                     main_box.remove_css_class("animating-out");
+                     close_layer_window (this);
++                    // A folder overlay is a separate toplevel layer window, so
++                    // it does not go away with the launcher. Dismiss it now --
++                    // waiting for the idle depopulate below left it on screen
++                    // for IDLE_DEPOPULATE_MS, or indefinitely if the overview
++                    // was reopened before that timer fired and cancelled it.
++                    launcher_grid.close_folder_overlays();
+                     PreviewCache.get_default().clear();
+                     hidden();
+                     // The overview just freed its grid widgets, icon textures
+@@ -434,6 +440,9 @@ namespace Singularity {
+ 
+         private void finish_gesture_hide() {
+             close_layer_window (this);
++            // Same reason as the animated close path: the folder overlay is its
++            // own toplevel and does not go away with the launcher.
++            launcher_grid.close_folder_overlays();
+             PreviewCache.get_default().clear();
+             hidden();
+             Singularity.trim_heap();

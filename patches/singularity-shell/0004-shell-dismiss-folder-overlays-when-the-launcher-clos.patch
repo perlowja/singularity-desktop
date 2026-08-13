@@ -1,4 +1,4 @@
-From e9efa7a76ab1a46336f9e1add013399004f631a5 Mon Sep 17 00:00:00 2001
+From 84456417f15c57e2155d979873e9d77b7b703951 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Wed, 12 Aug 2026 22:44:38 -0400
 Subject: [PATCH 4/4] shell: dismiss folder overlays when the launcher closes
@@ -57,10 +57,10 @@ index 5125236..d9c2820 100644
              while (c != null) { Widget nc = c.get_next_sibling(); grid.remove(c); c = nc; }
          }
 diff --git a/src/components/overview/overview.vala b/src/components/overview/overview.vala
-index eb113cc..5d68694 100644
+index bfa157b..421c7ba 100644
 --- a/src/components/overview/overview.vala
 +++ b/src/components/overview/overview.vala
-@@ -334,6 +334,12 @@ namespace Singularity {
+@@ -336,6 +336,12 @@ namespace Singularity {
                      _anim_out_timer = 0;
                      main_box.remove_css_class("animating-out");
                      close_layer_window (this);
@@ -73,7 +73,7 @@ index eb113cc..5d68694 100644
                      PreviewCache.get_default().clear();
                      hidden();
                      // The overview just freed its grid widgets, icon textures
-@@ -434,6 +440,9 @@ namespace Singularity {
+@@ -438,6 +444,9 @@ namespace Singularity {
  
          private void finish_gesture_hide() {
              close_layer_window (this);

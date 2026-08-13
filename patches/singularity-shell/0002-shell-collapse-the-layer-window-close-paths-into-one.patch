@@ -1,4 +1,4 @@
-From 4730fea0c32ed06086a1d505be95f09044fcf4ef Mon Sep 17 00:00:00 2001
+From 9ae60cc919d767bffc15254f6f29490abf384cec Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Wed, 12 Aug 2026 21:39:03 -0400
 Subject: [PATCH 2/4] shell: collapse the layer-window close paths into one
@@ -33,10 +33,10 @@ Net -132/+25 lines across six files.
  create mode 100644 src/core/layer_window.vala
 
 diff --git a/meson.build b/meson.build
-index 7f14591..5000842 100644
+index 05da4eb..623e312 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -324,6 +324,7 @@ singularity_core_sources = files(
+@@ -325,6 +325,7 @@ singularity_core_sources = files(
      'src/components/sidebar/pages/performance_page.vala',
      'src/core/display_manager.vala',
      'src/core/hot_corner_manager.vala',
@@ -45,7 +45,7 @@ index 7f14591..5000842 100644
      'src/core/system_components.vala',
      'src/core/debug_manager.vala',
 diff --git a/src/components/dock/dock.vala b/src/components/dock/dock.vala
-index 85ed934..669cde6 100644
+index d583790..04ed377 100644
 --- a/src/components/dock/dock.vala
 +++ b/src/components/dock/dock.vala
 @@ -241,11 +241,7 @@ namespace Singularity {
@@ -61,7 +61,7 @@ index 85ed934..669cde6 100644
                      update_visibility_mode();
                      pulse_frame_clock();
                  }
-@@ -261,11 +257,7 @@ namespace Singularity {
+@@ -263,11 +259,7 @@ namespace Singularity {
                  if (key == "dock-enabled") {
                      _enabled = _settings.get_boolean("dock-enabled");
                      if (!_enabled) {
@@ -74,7 +74,7 @@ index 85ed934..669cde6 100644
                          set_exclusive_zone(this, 0);
                          app_system.shell_dock_height = 0;
                          _set_reveal_barrier_active(false);
-@@ -935,11 +927,7 @@ namespace Singularity {
+@@ -940,11 +932,7 @@ namespace Singularity {
                      queue_draw();
                      break;
                  case "remap":
@@ -87,7 +87,7 @@ index 85ed934..669cde6 100644
                      present();
                      queue_draw();
                      break;
-@@ -1048,11 +1036,7 @@ namespace Singularity {
+@@ -1053,11 +1041,7 @@ namespace Singularity {
                  // is live right after the remap (and we pulse it), so the content
                  // transform is presented reliably without moving the surface.
                  set_body_class("dock-reveal-offset", true);
@@ -100,7 +100,7 @@ index 85ed934..669cde6 100644
                  present();
                  start_content_slide();
              }
-@@ -1156,11 +1140,7 @@ namespace Singularity {
+@@ -1161,11 +1145,7 @@ namespace Singularity {
                  return;
              }
              if (!_enabled) {
@@ -113,7 +113,7 @@ index 85ed934..669cde6 100644
                  set_exclusive_zone(this, 0);
                  app_system.shell_dock_height = 0;
                  _set_reveal_barrier_active(false);
-@@ -1177,11 +1157,7 @@ namespace Singularity {
+@@ -1182,11 +1162,7 @@ namespace Singularity {
                  // Re-trigger size_allocate to restore the correct exclusive zone
                  queue_resize();
              } else if (visibility_mode == "overview-only") {
@@ -126,7 +126,7 @@ index 85ed934..669cde6 100644
                  set_exclusive_zone(this, 0);
              }
              update_autohide_state();
-@@ -1231,11 +1207,7 @@ namespace Singularity {
+@@ -1236,11 +1212,7 @@ namespace Singularity {
                  // window covering it) is not composited until a frame is
                  // committed, so closing a focused fullscreen window left the
                  // dock buried. Remap to force a fresh buffer and present.
@@ -140,7 +140,7 @@ index 85ed934..669cde6 100644
                  update_visibility_mode();
                  pulse_frame_clock();
 diff --git a/src/components/overview/app_menu.vala b/src/components/overview/app_menu.vala
-index c140c4a..94196e5 100644
+index e4be598..3ee5d2f 100644
 --- a/src/components/overview/app_menu.vala
 +++ b/src/components/overview/app_menu.vala
 @@ -158,11 +158,7 @@ namespace Singularity {
@@ -156,7 +156,7 @@ index c140c4a..94196e5 100644
          }
  
          private void apply_monitor_sizing() {
-@@ -273,11 +269,7 @@ namespace Singularity {
+@@ -275,11 +271,7 @@ namespace Singularity {
                  menu_animation.tick.connect(() => { opacity = menu_animation.value; });
                  menu_animation.done.connect(() => {
                      if (_is_open) return;
@@ -169,8 +169,8 @@ index c140c4a..94196e5 100644
                      if (widgets_grid != null) widgets_grid.depopulate();
                      hidden();
                  });
-@@ -341,11 +333,7 @@ namespace Singularity {
-                 opacity = target;
+@@ -354,11 +346,7 @@ namespace Singularity {
+                 content_stack.margin_top = 0;
                  if (stay_open) search_entry.grab_focus();
                  else {
 -                    hide();
@@ -182,7 +182,7 @@ index c140c4a..94196e5 100644
                      if (widgets_grid != null) widgets_grid.depopulate();
                      hidden();
                  }
-@@ -365,11 +353,7 @@ namespace Singularity {
+@@ -382,11 +370,7 @@ namespace Singularity {
                  if (menu_animation == animation) menu_animation = null;
                  if (stay_open) search_entry.grab_focus();
                  else {
@@ -196,10 +196,10 @@ index c140c4a..94196e5 100644
                      hidden();
                  }
 diff --git a/src/components/overview/overview.vala b/src/components/overview/overview.vala
-index 2c53872..eb113cc 100644
+index fbb7510..bfa157b 100644
 --- a/src/components/overview/overview.vala
 +++ b/src/components/overview/overview.vala
-@@ -333,23 +333,7 @@ namespace Singularity {
+@@ -335,23 +335,7 @@ namespace Singularity {
                  _anim_out_timer = GLib.Timeout.add(180, () => {
                      _anim_out_timer = 0;
                      main_box.remove_css_class("animating-out");
@@ -224,7 +224,7 @@ index 2c53872..eb113cc 100644
                      PreviewCache.get_default().clear();
                      hidden();
                      // The overview just freed its grid widgets, icon textures
-@@ -449,11 +433,7 @@ namespace Singularity {
+@@ -453,11 +437,7 @@ namespace Singularity {
          }
  
          private void finish_gesture_hide() {
@@ -238,7 +238,7 @@ index 2c53872..eb113cc 100644
              hidden();
              Singularity.trim_heap();
 diff --git a/src/components/overview/workspace_overview.vala b/src/components/overview/workspace_overview.vala
-index fe6e478..3f83515 100644
+index 6187aee..ae3c462 100644
 --- a/src/components/overview/workspace_overview.vala
 +++ b/src/components/overview/workspace_overview.vala
 @@ -135,11 +135,7 @@ namespace Singularity {
@@ -267,9 +267,9 @@ index fe6e478..3f83515 100644
                      // Free all window preview textures - they'll be re-captured on next open
                      clear_overview_content();
                      hidden();
-@@ -506,11 +498,7 @@ namespace Singularity {
-                     || Math.fabs(opacity - target) < 0.001) {
-                 opacity = target;
+@@ -511,11 +503,7 @@ namespace Singularity {
+                 window_stack.opacity = target;
+                 window_stack.margin_top = 0;
                  if (!stay_open) {
 -                    hide();
 -                    // Drop the GdkSurface so the next open gets a fresh wl_surface.
@@ -280,8 +280,8 @@ index fe6e478..3f83515 100644
                      clear_overview_content();
                      hidden();
                  }
-@@ -529,11 +517,7 @@ namespace Singularity {
-                 opacity = target;
+@@ -536,11 +524,7 @@ namespace Singularity {
+                 window_stack.margin_top = 0;
                  if (_gesture_animation == animation) _gesture_animation = null;
                  if (!stay_open) {
 -                    hide();

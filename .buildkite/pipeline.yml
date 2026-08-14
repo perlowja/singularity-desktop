@@ -146,3 +146,31 @@ steps:
       echo "--- :package: artifact"
       ls -lh singularity-opt.tgz
       buildkite-agent artifact upload "singularity-opt.tgz"
+
+      echo "--- :floppy_disk: stage the payload to ARGONAS"
+      # Buildkite's own artifact download is UNUSABLE from our network: the API
+      # 302s to buildkiteartifacts.com, and that host resolves to 0.0.0.0 from
+      # public resolvers (verified against 1.1.1.1, not just our LAN DNS), so
+      # curl fails in 2ms with "Could not connect to server". The nightly could
+      # therefore never stage a payload even after the build went green.
+      #
+      # This agent runs on TYDEUS, on our own LAN, so it pushes the tarball to
+      # ARGONAS directly and skips the CDN entirely. Least privilege: it writes
+      # as jasonperlow (uid 3000) into a directory owned by that user, over a
+      # key already trusted by ARGONAS -- no root, and no credential in this
+      # repo, which would be caught by cix-installer's secret-scan gate anyway.
+      #
+      # DATED filename, never singularity-opt.tgz: promotion to the name the
+      # beta build consumes stays an explicit human step.
+      NCZ_SHA="$$(git submodule status --recursive -- subprojects/singularity-shell | awk '{print substr($$1,2,12)}' | head -1)"
+      NCZ_STAMP="$$(date -u +%Y%m%d-%H%M%S)"
+      NCZ_NAME="singularity-opt-$${NCZ_STAMP}-$${NCZ_SHA:-unknown}.tgz"
+      if scp -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+             singularity-opt.tgz \
+             "jasonperlow@192.168.207.101:/mnt/datapool/archives/ncz/singularity/staged/$${NCZ_NAME}"; then
+        echo "staged to ARGONAS: $${NCZ_NAME}"
+      else
+        # Never fail the build over staging: the build result is the signal that
+        # matters, and a NAS hiccup must not turn a green upstream into red.
+        echo "WARNING: could not stage to ARGONAS (build result unaffected)" >&2
+      fi

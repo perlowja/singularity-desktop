@@ -60,7 +60,7 @@ steps:
           libxml2-dev libpixman-1-dev libpoppler-glib-dev libsystemd-dev \
           libtracker-sparql-3.0-dev libwebkitgtk-6.0-dev libxcb-ewmh-dev \
           libxcb-icccm4-dev libxkbcommon-dev libpam0g-dev \
-          libgcrypt20-dev libsodium-dev \
+          libgcrypt20-dev libsodium-dev libcrypt-dev \
           hwdata libxcb-dri3-dev xwayland \
           libxcb-composite0-dev libxcb-render0-dev libxcb-res0-dev \
           libxcb-xfixes0-dev libxcb-errors-dev libxcb-present-dev \

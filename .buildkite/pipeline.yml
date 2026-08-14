@@ -162,7 +162,7 @@ steps:
       #
       # DATED filename, never singularity-opt.tgz: promotion to the name the
       # beta build consumes stays an explicit human step.
-      NCZ_SHA="$$(git submodule status --recursive -- subprojects/singularity-shell | awk '{print substr($$1,2,12)}' | head -1)"
+      NCZ_SHA="$$(git submodule status --recursive -- subprojects/singularity-shell | head -1 | sed -E 's/^[[:space:]]*[-+U]?//' | cut -c1-12)"
       NCZ_STAMP="$$(date -u +%Y%m%d-%H%M%S)"
       NCZ_NAME="singularity-opt-$${NCZ_STAMP}-$${NCZ_SHA:-unknown}.tgz"
       if scp -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=15 \

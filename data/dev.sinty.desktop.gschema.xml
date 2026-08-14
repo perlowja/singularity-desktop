@@ -466,5 +466,64 @@
       <summary>Sensor treated as CPU</summary>
       <description>Substring identifying the CPU sensor on hardware the driver allow-list cannot recognise, matched against the hwmon chip name or thermal zone type. Upstream this defaults to empty; NCZ-OS sets "TZ" so the CIX Sky1 cluster zones (TZB0/TZB1/TZM0/TZM1) are read as CPU. The GPU hint is checked first, so TZGT is still classified as the GPU.</description>
     </key>
+  
+    <!-- Keys added downstream 2026-08-14. The shell at upstream pin 995dd1e
+         reads these, but no schema in either repo defines them: upstream
+         singularity-shell ships only dev.sinty.lockscreen, so this file is the
+         sole definition site for dev.sinty.desktop. Tracking upstream tip
+         without adding them made singularity-desktop abort on startup:
+           GLib-GIO-ERROR: Settings schema 'dev.sinty.desktop' does not
+           contain a key named 'window-border-width'
+         GSettings treats a missing key as a programmer error and calls
+         g_error(), which aborts -- so every one of these is a hard crash the
+         moment its code path runs, not a fallback. Ranges below are taken from
+         the call sites, not invented. -->
+    <key name="window-border-width" type="i">
+      <default>1</default>
+      <range min="0" max="8"/>
+      <summary>Window border width</summary>
+      <description>
+        Accent-colored border thickness in pixels. The settings UI exposes it as
+        a 0-8 spin control (desktop_page.vala) and the compositor clamps to the
+        same range (main.vala), so the range mirrors both.
+      </description>
+    </key>
+    <key name="tiling-gap" type="i">
+      <default>8</default>
+      <range min="0" max="64"/>
+      <summary>Window gap</summary>
+      <description>
+        Space in pixels between windows in scrolling tiling. UI spin range and
+        the tiling_manager clamp are both 0-64. Read only when the sidebar or
+        the tiling manager runs, so it was a second abort queued behind
+        window-border-width rather than a startup crash.
+      </description>
+    </key>
+    <key name="quick-settings-compact" type="b">
+      <default>false</default>
+      <summary>Compact quick settings</summary>
+      <description>Show quick settings as icon controls rather than full rows.</description>
+    </key>
+    <key name="quick-settings-active-tiles" type="as">
+      <default>['wifi','bluetooth','audio','theme','night-light','do-not-disturb']</default>
+      <summary>Active quick settings tiles</summary>
+      <description>
+        Tile ids shown in the quick settings panel. Registered ids are wifi,
+        bluetooth, theme, night-light, airplane-mode, keyboard-light, audio,
+        power-profile, do-not-disturb, vpn, tiling, hotspot and game-mode.
+        Defaulted to the common subset rather than an empty list, because
+        tile_is_active() returns false for everything when the list is empty and
+        the panel would render with no tiles at all.
+      </description>
+    </key>
+    <key name="quick-settings-tile-order" type="as">
+      <default>[]</default>
+      <summary>Quick settings tile order</summary>
+      <description>
+        Explicit ordering of tile ids. Empty is safe here, unlike the active
+        list: tile_order() appends any unlisted registered tiles after the
+        ordered ones, so an empty value yields registration order.
+      </description>
+    </key>
   </schema>
 </schemalist>

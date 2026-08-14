@@ -119,9 +119,26 @@ steps:
       echo "--- :mag: verify the payload carries the close-path fix"
       # A build log, a filename and a version string all looked fine while the
       # payload was unpatched. The only honest check is the binary itself.
-      if ! readelf --dyn-syms stage/opt/singularity/bin/singularity-desktop \
+      # Look in the desktop binary AND the staged shared objects: the call can
+      # legitimately live in a library rather than the executable, and a guard
+      # that only inspects the executable would then fail on a good payload.
+      # Strictness is unchanged -- the symbol must exist SOMEWHERE in the payload.
+      if ! (readelf --dyn-syms stage/opt/singularity/bin/singularity-desktop 2>/dev/null; \
+            find stage/opt/singularity -name '*.so*' -exec readelf --dyn-syms {} \; 2>/dev/null) \
            | grep -q gtk_widget_unrealize; then
         echo "🚨 payload is UNPATCHED -- it would reproduce the layer-shell crash" >&2
+        # Diagnose instead of just failing. The two causes look identical from a
+        # bare exit 1: (a) the symbol moved, (b) valac bound the GtkNative vfunc
+        # gtk_native_unrealize instead of the widget one, which is the exact
+        # failure mode upstream's cast in layer_window.vala guards against and
+        # which a toolchain bump can silently reintroduce.
+        echo "--- unrealize symbols actually present in the payload:" >&2
+        (readelf --dyn-syms stage/opt/singularity/bin/singularity-desktop 2>/dev/null; \
+         find stage/opt/singularity -name '*.so*' -exec readelf --dyn-syms {} \; 2>/dev/null) \
+          | grep -i unrealize | sort -u | head -20 >&2
+        echo "--- valac in this image: $$(valac --version 2>/dev/null)" >&2
+        echo "--- if gtk_native_unrealize appears above and gtk_widget_unrealize does not," >&2
+        echo "    this is a REAL regression from the vala codegen, not a stale guard." >&2
         exit 1
       fi
       echo "payload verified: carries gtk_widget_unrealize (PR #15)"

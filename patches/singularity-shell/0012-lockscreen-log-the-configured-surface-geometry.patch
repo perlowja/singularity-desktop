@@ -4,7 +4,8 @@ Date: Sun, 16 Aug 2026 21:40:00 +0000
 Subject: [PATCH] lockscreen: log the configured surface geometry
 
 The lock screen is reported from the machine as visibly lower resolution than
-the greeter on a 3840x2160 panel. Patch 0011 added buffer-scale handling on
+the greeter. The panel is confirmed 3840x2160 (card0-DP-2 native mode, read
+from sysfs on the O6). Patch 0011 added buffer-scale handling on
 the assumption that a missing scale was the cause. It is not: a read-only
 wl_output probe run against the live session measured
 

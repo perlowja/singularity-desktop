@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 16 Aug 2026 17:05:00 +0000
+Subject: [PATCH] shell: identify the CPU and GPU on the shipping Sky1 sensor
+ topology
+
+MEASURED on two CIX Sky1 machines whose sensor topologies differ completely,
+decided by one kernel command line flag:
+
+  cixmini, 7.0.12-cix-sky1-next, no acpi_scmi_en flag
+      one hwmon chip "scmi_sensors" carrying 22 LABELLED sensors --
+      CPU_B0, CPU_B1, CPU_M0, CPU_M1, GPU_AVE, GPU_top, GPU_btm, NPU,
+      VPU, DDR_top, DDR_btm, PCB_AMB, PCB_HOT, SOC_TRC, ...
+
+  O6N, 7.2.0-rc7-sky1-ncz, acpi_scmi_en=off
+      no scmi_sensors at all -- five bare ACPI thermal zones named
+      TZB0 TZB1 TZM0 TZM1 TZGT, with no labels and no tempN_crit
+
+SCMI is disabled deliberately on 7.2, so the second topology is what we
+ship. There the allow-lists inside SensorMonitor cannot help: the identity
+of a sensor lives in a four-character ACPI name and nowhere else. Probed on
+O6N, the panel reported cpu=-1 gpu=-1 -- no CPU and no GPU temperature on
+the board this product targets.
+
+cpu_hint and gpu_hint are the documented extension point for exactly this
+("hardware the allow-list cannot know... a distribution sets these"), so
+this is a configuration change rather than another vendor string baked into
+libsingularity.
+
+TZB is the big cluster, TZM the mid cluster, TZGT graphics. classify() tests
+gpu_hint before cpu_hint, so the specific TZGT claims the GPU before the
+broader TZ claims the rest.
+
+Verified on O6N hardware, before and after:
+
+    before   cpu=-1     gpu=-1     system=70850
+    after    cpu=49000  gpu=46000  system=70850
+
+with TZGT GPU, TZB0/TZB1/TZM0/TZM1 CPU, and nvme plus both r8169 NICs still
+correctly SYSTEM. Both hints are inert on the scmi_sensors topology, where
+no chip or label contains "TZ", so one configuration serves both kernels.
+
+Worth recording separately: the 7.2 configuration costs the user NPU, VPU,
+DDR, PCB and SOC temperatures outright -- 22 sensors become 5.
+---
+diff --git a/src/core/system_monitor.vala b/src/core/system_monitor.vala
+index a7b0a3c..bdd4202 100644
+--- a/src/core/system_monitor.vala
++++ b/src/core/system_monitor.vala
+@@ -16,7 +16,43 @@ namespace Singularity {
+         public BluetoothManager bluetooth { get { if (_bluetooth == null) _bluetooth = new BluetoothManager(); return _bluetooth; } }
+         public PowerProfilesManager power_profiles { get { if (_power_profiles == null) _power_profiles = new PowerProfilesManager(); return _power_profiles; } }
+         public ResourceMonitor resources { get { if (_resources == null) _resources = new ResourceMonitor(); return _resources; } }
+-        public SensorMonitor sensors { get { if (_sensors == null) _sensors = new SensorMonitor(); return _sensors; } }
++        /**
++         * Sensors, with the CIX Sky1 naming hints applied.
++         *
++         * MEASURED 2026-08-16 on two Sky1 machines that present COMPLETELY
++         * DIFFERENT sensor topologies, decided by one kernel command line flag:
++         *
++         *   cixmini, 7.0.12-cix-sky1-next, no acpi_scmi_en flag
++         *       -> one hwmon chip "scmi_sensors" carrying 22 LABELLED sensors
++         *          (CPU_B0, CPU_M1, GPU_AVE, NPU, VPU, DDR_top, PCB_AMB, ...)
++         *
++         *   O6N,     7.2.0-rc7-sky1-ncz,    acpi_scmi_en=off
++         *       -> no scmi_sensors at all; five bare ACPI thermal zones named
++         *          TZB0 TZB1 TZM0 TZM1 TZGT, with NO labels and no tempN_crit
++         *
++         * We disable SCMI on 7.2 deliberately, so the shipping configuration is
++         * the second one. There the allow-lists in SensorMonitor cannot help --
++         * the identity is in a four-character ACPI name and nowhere else -- and
++         * the panel reported cpu=-1 gpu=-1 on the board this product targets.
++         *
++         * TZB = big cluster, TZM = mid cluster, TZGT = graphics. gpu_hint is
++         * tested before cpu_hint by SensorMonitor.classify(), so the more
++         * specific TZGT claims the GPU before the broader TZ claims the rest.
++         * Verified on O6N: cpu=49000 gpu=46000, with nvme and both r8169 NICs
++         * still correctly SYSTEM. Both hints are inert on the scmi_sensors
++         * topology, where no chip or label contains "TZ", so one configuration
++         * serves both kernels.
++         */
++        public SensorMonitor sensors {
++            get {
++                if (_sensors == null) {
++                    _sensors = new SensorMonitor();
++                    _sensors.gpu_hint = "TZGT";
++                    _sensors.cpu_hint = "TZ";
++                }
++                return _sensors;
++            }
++        }
+         public CallMonitor call_monitor { get { if (_call_monitor == null) _call_monitor = new CallMonitor(audio); return _call_monitor; } }
+ 
+         private PowerManager? _power;
+-- 
+2.51.0

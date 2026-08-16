@@ -1,0 +1,133 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 16 Aug 2026 19:00:00 +0000
+Subject: [PATCH] lockscreen: take the keyboard only once the seat advertises it
+
+The lock screen intermittently accepted no keyboard input. It rendered
+correctly -- clock, date, username, password field all drawn -- and the
+keyboard was live at kernel level throughout (device enumerated, event nodes
+present, the compositor holding them normally). There was simply nowhere for
+the keys to go. Reported from the machine three times as "keyboard frozen".
+
+Cause: the seat's devices were taken blind.
+
+    wl_display_roundtrip(display);        /* delivers globals, binds the seat */
+    ...
+    keyboard = wl_seat_get_keyboard(seat);
+
+That roundtrip delivers the registry globals and binds wl_seat, but the seat
+then sends its capabilities event asynchronously; it is NOT guaranteed to have
+been dispatched by the time the roundtrip returns. There was no
+wl_seat_add_listener and no capabilities handler anywhere in the file, so
+get_keyboard was issued without ever knowing the seat had a keyboard.
+wl_seat.get_keyboard is documented as a protocol violation on a seat that has
+never advertised the capability (missing_capability), and in practice the
+object returned received no key events at all.
+
+That timing dependency is why it was INTERMITTENT -- same binary, same board,
+dead on some locks and fine on others depending on whether the compositor had
+got the capabilities event out in time.
+
+Bind a proper seat listener, roundtrip a second time so capabilities are in
+hand, and take the devices in seat_capabilities(). It also releases them when
+the seat drops them, which is what makes a keyboard hot-plugged after the lock
+started work at all.
+
+Verified on O6N: with the fixed binary running on the live lock surface, the
+password was accepted and the session unlocked.
+
+NOT fixed here, and worth its own change: this surface does no scale handling
+whatsoever -- no wl_surface_set_buffer_scale, no output-scale listener. On a
+3840x2160 display with compositor scale 2 the client renders at the logical
+size and the compositor upscales it, which is why the lock screen visibly
+drops resolution relative to the greeter.
+---
+diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
+index 28fc013..eda629e 100644
+--- a/src/lockscreen/lock_main.c
++++ b/src/lockscreen/lock_main.c
+@@ -354,6 +354,7 @@ static void submit_password(void) {
+ 
+ /* ── Keyboard ───────────────────────────────────────────────────────────── */
+ 
++
+ static void kb_keymap(void *data, struct wl_keyboard *kb, uint32_t format, int fd, uint32_t size) {
+     if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) { close(fd); return; }
+     char *map = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+@@ -465,6 +466,36 @@ static const struct wl_pointer_listener pointer_listener = {
+     .axis_stop = pt_axis_stop, .axis_discrete = pt_axis_discrete,
+ };
+ 
++/*
++ * Seat capabilities. Devices are taken here and released again when the seat
++ * drops them, which is also what makes a hot-plugged keyboard work on a lock
++ * screen that may have started before the device was attached.
++ */
++static void seat_capabilities(void *data, struct wl_seat *s, uint32_t caps) {
++    (void)data;
++    if ((caps & WL_SEAT_CAPABILITY_KEYBOARD) && !keyboard) {
++        keyboard = wl_seat_get_keyboard(s);
++        if (keyboard) wl_keyboard_add_listener(keyboard, &keyboard_listener, NULL);
++    } else if (!(caps & WL_SEAT_CAPABILITY_KEYBOARD) && keyboard) {
++        wl_keyboard_release(keyboard);
++        keyboard = NULL;
++    }
++    if ((caps & WL_SEAT_CAPABILITY_POINTER) && !pointer) {
++        pointer = wl_seat_get_pointer(s);
++        if (pointer) wl_pointer_add_listener(pointer, &pointer_listener, NULL);
++    } else if (!(caps & WL_SEAT_CAPABILITY_POINTER) && pointer) {
++        wl_pointer_release(pointer);
++        pointer = NULL;
++    }
++}
++static void seat_name(void *data, struct wl_seat *s, const char *name) {
++    (void)data; (void)s; (void)name;
++}
++static const struct wl_seat_listener seat_listener = {
++    .capabilities = seat_capabilities,
++    .name = seat_name,
++};
++
+ /* ── Registry ───────────────────────────────────────────────────────────── */
+ 
+ static struct wl_registry *registry_global_obj;
+@@ -535,10 +566,33 @@ int main(int argc, char **argv) {
+     }
+ 
+     xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+-    keyboard = wl_seat_get_keyboard(seat);
+-    if (keyboard) wl_keyboard_add_listener(keyboard, &keyboard_listener, NULL);
+-    pointer = wl_seat_get_pointer(seat);
+-    if (pointer) wl_pointer_add_listener(pointer, &pointer_listener, NULL);
++
++    /*
++     * TAKE THE KEYBOARD ONLY ONCE THE SEAT SAYS IT HAS ONE.
++     *
++     * This used to call wl_seat_get_keyboard() straight after the registry
++     * roundtrip above. That roundtrip delivers the GLOBALS and binds the seat,
++     * but the seat then sends its capabilities event asynchronously -- it is
++     * NOT guaranteed to have been dispatched by the time that roundtrip
++     * returns. wl_seat.get_keyboard is documented as a protocol violation on a
++     * seat that has never advertised the capability (missing_capability), and
++     * in practice the object we got back sometimes received no key events at
++     * all while the lock surface rendered perfectly.
++     *
++     * That timing dependency is why it was INTERMITTENT: same binary, same
++     * board, dead keyboard on some locks and not others, depending on whether
++     * the compositor had got the capabilities event out in time. Reported from
++     * the machine three times as "keyboard frozen", each time with the lock
++     * surface drawing its clock and password field correctly.
++     *
++     * Bind the listener, roundtrip a second time so capabilities are actually
++     * in hand, and let seat_capabilities() take the devices.
++     */
++    wl_seat_add_listener(seat, &seat_listener, NULL);
++    wl_display_roundtrip(display);
++    if (!keyboard) {
++        fprintf(stderr, "lock: seat advertised no keyboard capability\n");
++    }
+ 
+     lock = ext_session_lock_manager_v1_lock(lock_manager);
+     ext_session_lock_v1_add_listener(lock, &lock_listener, NULL);
+-- 
+2.51.0

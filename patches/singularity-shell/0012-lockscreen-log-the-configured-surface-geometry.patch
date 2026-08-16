@@ -21,10 +21,29 @@ the defect is upstream of it; if they match, the loss is somewhere in this
 clients own rendering path. One line of output separates those two cases, and
 neither could be distinguished without it.
 
-This is a diagnostic, not a fix, and it is deliberately kept: the symptom is
-still open, it costs one fprintf per configure event on a surface that is
-configured once per lock, and it goes to the same stderr log that
-57-screensaver.sh already captures to NCZ_LOCK_LOG.
+This is a diagnostic, not a fix, and it is deliberately kept: it costs one
+fprintf per configure event on a surface that is configured once per lock, and
+it goes to the same stderr log that 57-screensaver.sh already captures to
+NCZ_LOCK_LOG.
+
+RESULT, measured on the O6 with a payload built from this patch (bk8), by
+exercising the lock against the greeter compositor on the real panel:
+
+    lock: keymap accepted, keyboard ready
+    lock: configure 3840x2160 scale=1 (buffer 3840x2160)
+
+The compositor hands the lock surface the FULL panel resolution, the scale is
+1, and the buffer is allocated at 3840x2160. So the surface is not configured
+small, nothing is upscaled, and the client is drawing at native resolution.
+
+That rules out the entire geometry-and-scale explanation -- which is what both
+this patch and 0011 were written to investigate -- and means the reported
+"lower resolution than the greeter" is NOT a resolution difference at the
+Wayland protocol level. Whatever the eye is picking up is in what the lock
+screen DRAWS (asset sizes, font choice and size, how the background is
+composited) rather than in how many pixels it is given to draw into. Any
+further work should start from a visual comparison of the two surfaces at
+identical resolution, not from the protocol.
 
 ---
 --- a/src/lockscreen/lock_main.c

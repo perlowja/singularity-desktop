@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 16 Aug 2026 21:40:00 +0000
+Subject: [PATCH] lockscreen: log the configured surface geometry
+
+The lock screen is reported from the machine as visibly lower resolution than
+the greeter on a 3840x2160 panel. Patch 0011 added buffer-scale handling on
+the assumption that a missing scale was the cause. It is not: a read-only
+wl_output probe run against the live session measured
+
+    OUTPUT SCALE = 1
+
+so nothing is being upscaled and 0011, while correct in general, is inert on
+this hardware. The cause is still unknown.
+
+What was never recorded is the geometry the compositor actually hands the lock
+surface in the ext-session-lock configure event. If that width and height are
+smaller than the panel, the client is drawing exactly what it was told to and
+the defect is upstream of it; if they match, the loss is somewhere in this
+clients own rendering path. One line of output separates those two cases, and
+neither could be distinguished without it.
+
+This is a diagnostic, not a fix, and it is deliberately kept: the symptom is
+still open, it costs one fprintf per configure event on a surface that is
+configured once per lock, and it goes to the same stderr log that
+57-screensaver.sh already captures to NCZ_LOCK_LOG.
+
+---
+--- a/src/lockscreen/lock_main.c
++++ b/src/lockscreen/lock_main.c
+@@ -354,6 +354,16 @@
+                                    uint32_t serial, uint32_t w, uint32_t h) {
+     struct lock_output *o = data;
+     o->width = w; o->height = h; o->configured = true;
++    /* Log the geometry we are told to paint. On a 3840x2160 panel the lock
++     * screen was reported as visibly lower resolution than the greeter, and
++     * the obvious culprit -- a missing buffer scale -- turned out not to
++     * apply: the output reports SCALE = 1, measured with a read-only wl_output
++     * probe, so nothing is being upscaled. That leaves the configured size
++     * itself as the thing to check, and nothing recorded it. */
++    fprintf(stderr, "lock: configure %ux%u scale=%d (buffer %ux%u)\n",
++            w, h, o->scale > 0 ? o->scale : 1,
++            w * (unsigned)(o->scale > 0 ? o->scale : 1),
++            h * (unsigned)(o->scale > 0 ? o->scale : 1));
+     ext_session_lock_surface_v1_ack_configure(s, serial);
+     render_output(o);
+ }

@@ -9,11 +9,18 @@ Two independent defects on the lock surface.
 NO SCALE HANDLING AT ALL. The surface never called
 wl_surface_set_buffer_scale() and no wl_output listener existed, so the
 client rendered at the LOGICAL size and the compositor upscaled the result.
-On a 3840x2160 panel at scale 2 it drew 1920x1080 and every glyph arrived
-doubled and soft -- reported from the machine as the lock screen being
-visibly lower resolution than the greeter. wl_output was already bound at
-version 3, so the scale event was always available; there was simply nothing
-listening. The buffer is now allocated in physical pixels, cairo is scaled so
+The lock screen was reported from the machine as visibly lower resolution
+than the greeter on a 3840x2160 panel, and a missing buffer scale was the
+obvious explanation. CORRECTION, measured after this patch was written: a
+read-only wl_output probe against the live session reports OUTPUT SCALE = 1.
+Nothing is being upscaled, so this patch does NOT explain the reported
+symptom and is inert on this hardware -- the cause is still unknown, and
+patch 0012 adds the configure-geometry logging needed to narrow it further.
+The change is kept because it is correct in general: a client that ignores
+the output scale renders at the logical size and is upscaled by the
+compositor on any panel that does report a scale above 1. wl_output was
+already bound at version 3, so the scale event was always available; there
+was simply nothing listening. The buffer is now allocated in physical pixels, cairo is scaled so
 all the existing drawing code keeps working in logical units, and the
 compositor is told the buffer density so it does not scale it twice.
 

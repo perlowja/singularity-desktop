@@ -525,5 +525,46 @@
         ordered ones, so an empty value yields registration order.
       </description>
     </key>
+    <key name="night-light-enabled" type="b">
+      <default>false</default>
+      <summary>Night Light enabled</summary>
+      <description>
+        Master switch for Night Light. Added along with the other
+        night-light-* keys below when NightLightManager was reworked from a
+        hard-coded 4000 K on/off toggle into a settings-driven state machine
+        -- these keys did not exist before that rework and their absence
+        aborts (SIGABRT, GSettings unknown-key) the moment
+        SystemMonitor.get_night_light() is called, which happens on first
+        sidebar construction. Same failure class as the window-border-width
+        / tiling-spacing note above.
+      </description>
+    </key>
+    <key name="night-light-adaptive" type="b">
+      <default>false</default>
+      <summary>Night Light adaptive scheduling</summary>
+      <description>
+        When true, Night Light activates automatically between
+        night-light-adaptive-from and night-light-adaptive-to instead of
+        following night-light-enabled directly.
+      </description>
+    </key>
+    <key name="night-light-temperature" type="i">
+      <default>4000</default>
+      <summary>Night Light color temperature (Kelvin)</summary>
+      <description>
+        Clamped to 1000-6500 K by NightLightManager. 4000 matches the value
+        the old hard-coded toggle used.
+      </description>
+    </key>
+    <key name="night-light-adaptive-from" type="s">
+      <default>"19:00"</default>
+      <summary>Night Light adaptive schedule start (HH:MM)</summary>
+      <description>Only read when night-light-adaptive is true.</description>
+    </key>
+    <key name="night-light-adaptive-to" type="s">
+      <default>"07:00"</default>
+      <summary>Night Light adaptive schedule end (HH:MM)</summary>
+      <description>Only read when night-light-adaptive is true.</description>
+    </key>
   </schema>
 </schemalist>

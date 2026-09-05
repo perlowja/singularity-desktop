@@ -97,8 +97,8 @@ steps:
 
       set +e
       docker run --rm \
-        -v "$$PWD":/workdir \
-        -v /tmp/bk-build.sh:/bk-build.sh:ro \
+        -v "$$PWD":/workdir:z \
+        -v /tmp/bk-build.sh:/bk-build.sh:ro,z \
         debian:testing \
         bash /bk-build.sh
       BUILD_RC=$$?
@@ -109,7 +109,7 @@ steps:
       # needs to be able to clean this checkout up for the next build — fix
       # ownership back unconditionally, even if the build itself failed.
       echo "--- :broom: restoring checkout ownership"
-      docker run --rm -v "$$PWD":/workdir alpine chown -R "$$(id -u):$$(id -g)" /workdir
+      docker run --rm -v "$$PWD":/workdir:z alpine chown -R "$$(id -u):$$(id -g)" /workdir
 
       if [ "$$BUILD_RC" -ne 0 ]; then
         echo "🚨 build failed (exit $$BUILD_RC)"

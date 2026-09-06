@@ -49,7 +49,7 @@ New executable SHA256: `2d043a21da7e99198a26ae37d852aa12df4c4f503727d9959f9ec826
 
 Before deployment, the complete `/opt/singularity` was backed up to `/var/backups/singularity-opt-pre-filter-20260906.tgz` (SHA256 `fbdc637ec670a5ce58c07655b50391aaad10b4cc14988a7685406b9af9683cc9`). `/opt/singularity.pre-filter-20260906` also retains the original prefix. The payload was staged separately, local schema overrides preserved and recompiled, all four keys read, and shared-library resolution checked before activation.
 
-`greetd` restarted at 01:42:51 EDT; authenticated mini session desktop PID 54183 started at 01:43:11. `/proc/54183/exe` matched the new artifact. The same process remained running throughout verification, greetd reported active with zero restarts, and no new systemd core records appeared. No rollback was needed.
+`greetd` restarted at 01:42:51 EDT; the authenticated mini session opened at 01:43:09 EDT, with desktop PID 54183 startup logs at 01:43:11. `/proc/54183/exe` matched the new artifact. The same process remained running throughout verification, greetd reported active with zero restarts, and no new systemd core records appeared. No rollback was needed.
 
 Real Wayland pointer clicks opened the source dropdown and selected Brandon Perlow, Bing, NCZ, and Alex Jay Brady. Screenshots showed source-appropriate images. The production probe's complete candidate URI sets exactly matched independent directory listings, with no duplicates:
 

@@ -11,13 +11,13 @@ $(LABWC_BUILD)/build.ninja:
 	meson setup $(LABWC_BUILD) $(LABWC_DIR) --prefix=/usr --buildtype=release -Dxwayland=enabled --force-fallback-for=wlroots-0.20 || { rm -rf $(LABWC_BUILD); meson setup $(LABWC_BUILD) $(LABWC_DIR) --prefix=/usr --buildtype=release -Dxwayland=enabled --force-fallback-for=wlroots-0.20; }
 
 labwc: $(LABWC_BUILD)/build.ninja
-	meson compile -C $(LABWC_BUILD)
+	meson compile -C $(LABWC_BUILD) -j 6
 
 compile: $(BUILD_DIR)/build.ninja labwc
 	ninja -C $(BUILD_DIR) subprojects/libsingularity/Singularity-1.0.gir
 	mkdir -p $(HOME)/.local/share/gir-1.0
 	cp $(BUILD_DIR)/subprojects/libsingularity/Singularity-1.0.gir $(HOME)/.local/share/gir-1.0/
-	meson compile -C $(BUILD_DIR)
+	meson compile -C $(BUILD_DIR) -j 6
 
 clean:
 	rm -rf $(BUILD_DIR) $(LABWC_BUILD)

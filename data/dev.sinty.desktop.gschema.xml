@@ -475,7 +475,7 @@
            GLib-GIO-ERROR: Settings schema 'dev.sinty.desktop' does not
            contain a key named 'window-border-width'
          GSettings treats a missing key as a programmer error and calls
-         g_error(), which aborts -- so every one of these is a hard crash the
+         g_error(), which aborts - so every one of these is a hard crash the
          moment its code path runs, not a fallback. Ranges below are taken from
          the call sites, not invented. -->
     <key name="window-border-width" type="i">
@@ -565,6 +565,28 @@
       <default>"07:00"</default>
       <summary>Night Light adaptive schedule end (HH:MM)</summary>
       <description>Only read when night-light-adaptive is true.</description>
+    </key>
+    <key name="hand-control-enabled" type="b">
+      <default>false</default>
+      <summary>Hand Control</summary>
+      <description>Control the desktop using camera-tracked hand gestures.</description>
+    </key>
+    <key name="background-effect" type="s">
+      <default>'disabled'</default>
+      <summary>Background Effect</summary>
+      <description>Material applied behind translucent desktop surfaces: disabled, glass, or blur.</description>
+    </key>
+    <key name="window-transparency" type="i">
+      <range min="0" max="90"/>
+      <default>12</default>
+      <summary>Window Transparency</summary>
+      <description>Percentage of app window background transparency while a background effect is active.</description>
+    </key>
+    <key name="blur-strength" type="i">
+      <range min="0" max="100"/>
+      <default>60</default>
+      <summary>Blur Strength</summary>
+      <description>Strength of the compositor blur used by background materials.</description>
     </key>
   </schema>
 </schemalist>

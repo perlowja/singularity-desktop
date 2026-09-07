@@ -103,7 +103,7 @@
 [submodule "subprojects/singularity-shell"]
 	path = subprojects/singularity-shell
 	url = https://github.com/perlowja/singularity-shell.git
-	branch = main
+	branch = ocs-browser-clean
 [submodule "subprojects/singularity-loginui"]
 	path = subprojects/singularity-loginui
 	url = https://github.com/singularityos-lab/singularity-loginui.git

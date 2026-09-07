@@ -1,6 +1,6 @@
 [submodule "subprojects/libsingularity"]
 	path = subprojects/libsingularity
-	url = https://github.com/singularityos-lab/libsingularity.git
+	url = https://github.com/perlowja/libsingularity.git
 	branch = main
 
 [submodule "subprojects/singularity-files"]

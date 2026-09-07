@@ -116,6 +116,30 @@
       <default>''</default>
       <summary>URI of the background picture</summary>
     </key>
+    <!-- Attribution metadata for the currently displayed wallpaper. Set by
+         the same call site that sets background-picture-uri when a
+         WallpaperOcsItem is in scope (Bing caption/copyright, OCS
+         <name>/<author>). Cleared to '' at every site that sets
+         background-picture-uri from a source without metadata (local pack
+         picks, the desktop-icons drag-drop, the reset button, the
+         singularity-files portal picker). The Background overlay reads
+         these via WallpaperManager and hides itself when both are empty.
+         WallpaperManager exposes them as attribution_title /
+         attribution_author and fires wallpaper_changed when they change. -->
+    <key name="background-attribution-title" type="s">
+      <default>''</default>
+      <summary>Title for the current wallpaper attribution overlay</summary>
+      <description>Title text shown on the live desktop background overlay,
+        sourced from the wallpapers metadata (Bing caption, OCS name).
+        Empty means no title shown.</description>
+    </key>
+    <key name="background-attribution-author" type="s">
+      <default>''</default>
+      <summary>Author or photographer for the current wallpaper attribution overlay</summary>
+      <description>Author, photographer, or agency credit shown on the live
+        desktop background overlay, sourced from the wallpapers metadata
+        (Bing copyright, OCS author). Empty means no author shown.</description>
+    </key>
     <key name="recent-wallpapers" type="as">
       <default>[]</default>
       <summary>List of recently used wallpaper URIs</summary>

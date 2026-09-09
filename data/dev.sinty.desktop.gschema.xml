@@ -116,6 +116,16 @@
       <default>''</default>
       <summary>URI of the background picture</summary>
     </key>
+    <key name="background-attribution-title" type="s">
+      <default>''</default>
+      <summary>Attribution title for the current background</summary>
+      <description>Display name/caption for the current wallpaper, sourced from an online provider (e.g. Openverse, Unsplash). Empty for locally-supplied or unattributed backgrounds.</description>
+    </key>
+    <key name="background-attribution-author" type="s">
+      <default>''</default>
+      <summary>Attribution author for the current background</summary>
+      <description>Creator name/credit for the current wallpaper, sourced from an online provider. Empty for locally-supplied or unattributed backgrounds.</description>
+    </key>
     <key name="recent-wallpapers" type="as">
       <default>[]</default>
       <summary>List of recently used wallpaper URIs</summary>

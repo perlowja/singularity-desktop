@@ -269,6 +269,12 @@
       <description>Whether to show icons from the configured desktop folder.</description>
     </key>
 
+    <key name="show-wallpaper-attribution" type="b">
+      <default>true</default>
+      <summary>Show Wallpaper Info</summary>
+      <description>Display the wallpaper's title and photographer credit as an overlay on the desktop background.</description>
+    </key>
+
     <key name="show-battery-percentage" type="b">
       <default>false</default>
       <summary>Show Battery Percentage</summary>

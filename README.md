@@ -63,7 +63,7 @@ mode, accent color, dock and workspace layout, developer mode, and more).
 - Applications: the other `subprojects/singularity-*` repositories.
 
 ## Use of Generative AI
-Some maintainers might use generative AI tools as assistants while working in Atom Loops, in the spirit of Open Source, I want to be transparent about how, specifically:
+Some maintainers might use generative AI tools as assistants while working in Singularity Desktop, in the spirit of Open Source, I want to be transparent about how, specifically:
 
 - Code comments and documentation
 - Boilerplate and repetitive code

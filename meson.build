@@ -5,12 +5,34 @@ project('singularity-desktop', ['vala', 'c'],
 
 gnome = import('gnome')
 i18n = import('i18n')
+fs = import('fs')
 subdir('data')
 subdir('po')
 
 subproject('libsingularity')
 subproject('singularity-loginui')
-subproject('singularity-gestures')
+
+gestures = get_option('gestures')
+gesture_runtime_ready = true
+foreach runtime_file : [
+  'subprojects/singularity-gestures/runtime/libmediapipe.so',
+  'subprojects/singularity-gestures/runtime/hand_landmarker.task',
+  'subprojects/singularity-gestures/runtime/face_landmarker.task',
+  'subprojects/singularity-gestures/runtime/libonnxruntime.so',
+  'subprojects/singularity-gestures/runtime/mobileone_s0_gaze.onnx',
+  'subprojects/singularity-gestures/runtime/include/onnxruntime_c_api.h',
+  'subprojects/singularity-gestures/runtime/include/onnxruntime_ep_c_api.h',
+]
+  if not fs.is_file(runtime_file)
+    gesture_runtime_ready = false
+  endif
+endforeach
+if gestures.enabled() and not gesture_runtime_ready
+  error('Gesture runtime is missing. Run make gesture-runtime before configuring.')
+endif
+if gestures.enabled() or (gestures.auto() and gesture_runtime_ready)
+  subproject('singularity-gestures')
+endif
 
 subproject('xdg-desktop-portal-singularity')
 subproject('singularity-polkit-agent')

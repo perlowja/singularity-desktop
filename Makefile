@@ -2,11 +2,13 @@ BUILD_DIR = build
 LABWC_DIR = subprojects/labwc
 LABWC_BUILD = $(LABWC_DIR)/build
 GESTURE_DIR = subprojects/singularity-gestures
+GESTURES ?= enabled
+MESON_OPTIONS = -Dgestures=$(GESTURES)
 
 all: compile
 
 $(BUILD_DIR)/build.ninja: | gesture-runtime
-	meson setup $(BUILD_DIR) || { rm -rf $(BUILD_DIR); meson setup $(BUILD_DIR); }
+	meson setup $(BUILD_DIR) $(MESON_OPTIONS) || { rm -rf $(BUILD_DIR); meson setup $(BUILD_DIR) $(MESON_OPTIONS); }
 
 $(LABWC_BUILD)/build.ninja:
 	meson setup $(LABWC_BUILD) $(LABWC_DIR) --prefix=/usr --buildtype=release -Dxwayland=enabled --force-fallback-for=wlroots-0.20 || { rm -rf $(LABWC_BUILD); meson setup $(LABWC_BUILD) $(LABWC_DIR) --prefix=/usr --buildtype=release -Dxwayland=enabled --force-fallback-for=wlroots-0.20; }
@@ -41,7 +43,7 @@ run: compile
 	gtk-update-icon-cache -f -t $(BUILD_DIR)/share/icons/hicolor
 
 reconfigure:
-	meson setup $(BUILD_DIR) --reconfigure
+	meson setup $(BUILD_DIR) $(MESON_OPTIONS) --reconfigure
 	meson setup $(LABWC_BUILD) $(LABWC_DIR) --reconfigure --force-fallback-for=wlroots-0.20
 
 schemas:
@@ -62,6 +64,9 @@ deploy-host:
 	@$(MAKE) install
 
 gesture-runtime:
+ifeq ($(GESTURES),disabled)
+	@:
+else
 	@test -f $(GESTURE_DIR)/runtime/libmediapipe.so \
 		-a -f $(GESTURE_DIR)/runtime/hand_landmarker.task \
 		-a -f $(GESTURE_DIR)/runtime/face_landmarker.task \
@@ -70,6 +75,7 @@ gesture-runtime:
 		-a -f $(GESTURE_DIR)/runtime/include/onnxruntime_c_api.h \
 		-a -f $(GESTURE_DIR)/runtime/include/onnxruntime_ep_c_api.h \
 		|| bash $(GESTURE_DIR)/scripts/bootstrap-runtime.sh
+endif
 
 install-greeter:
 	@if [ -n "$$container" ]; then \

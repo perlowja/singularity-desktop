@@ -174,3 +174,130 @@ steps:
         # matters, and a NAS hiccup must not turn a green upstream into red.
         echo "WARNING: could not stage to ARGONAS (build result unaffected)" >&2
       fi
+
+  - label: ":art: package and publish contributed wallpaper packs (.deb)"
+    key: "publish_wallpaper_packs"
+    agents:
+      queue: "arm64"
+    timeout_in_minutes: 15
+    # NO depends_on, and no artifact download. Contributed wallpaper art is
+    # cix-installer content and needs nothing whatsoever from the Singularity
+    # Desktop payload. It lives in THIS pipeline only because this is the only
+    # CI on our LAN: publication goes to the ARGOS apt host at 192.168.207.22,
+    # and cix-installer's own .gitlab-ci.yml runs on GitLab SHARED runners,
+    # which have no route there. Being an independent step also means a problem
+    # here can never hold up or red the desktop build.
+    #
+    # $$ ESCAPING: same rule as the build_arm64 step above -- `buildkite-agent
+    # pipeline upload` interpolates $VAR at UPLOAD time, so every $ meant for
+    # the runtime shell is written $$.
+    command: |
+      set -euo pipefail
+      trap 'rc=$$?; echo "[wallpaper_packs] ERROR: failed at line $${LINENO} (exit $$rc)" >&2; exit "$$rc"' ERR
+
+      command -v dpkg-deb >/dev/null 2>&1 || {
+        echo "[wallpaper_packs] ERROR: dpkg-deb is not installed on this agent; cannot package" >&2
+        exit 1
+      }
+
+      echo "--- :git: obtaining cix-installer (art + packaging script)"
+      # Everything stays under the agent's build directory. /tmp on the arm64
+      # agent is a 31G tmpfs that was 80% full on 2026-09-12 and returned
+      # EDQUOT partway through dpkg-deb's compression -- measured, not
+      # hypothetical. Exporting TMPDIR is what actually fixes it: the
+      # packaging script's `mktemp -d` and dpkg-deb's own compression scratch
+      # both default to /tmp otherwise.
+      PKG_ROOT="$$PWD/.cix-installer-wallpapers"
+      rm -rf "$$PKG_ROOT"
+      trap 'rm -rf "$$PKG_ROOT"' EXIT
+      git clone --depth 1 https://gitlab.com/ncz-os/cix-installer.git "$$PKG_ROOT"
+      # After the clone: git refuses a non-empty destination.
+      export TMPDIR="$$PKG_ROOT/tmp"
+      mkdir -p "$$TMPDIR"
+
+      CONTRIB="$$PKG_ROOT/assets/branding/wallpaper/contrib"
+      [ -d "$$CONTRIB" ] || {
+        echo "[wallpaper_packs] ERROR: $$CONTRIB is missing from cix-installer" >&2
+        exit 1
+      }
+
+      echo "--- :mag: reading the published package index"
+      # The already-published check. A pack's version is HUMAN-BUMPED in
+      # build-wallpaper-contrib-deb.sh's metadata block, so an unchanged pack
+      # rebuilds to the same version every night and must not be re-uploaded;
+      # a bumped one must be. Fetch failure is FATAL rather than treated as
+      # "nothing is published" -- the latter would re-upload every pack on any
+      # transient network fault, which is exactly the kind of silent churn this
+      # check exists to prevent.
+      INDEX="$$PKG_ROOT/published-Packages"
+      curl -fsSL --retry 3 --retry-delay 5 \
+        "https://packages.buildkite.com/ncz-os/ncz/any/dists/any/main/binary-arm64/Packages" \
+        -o "$$INDEX"
+      echo "index stanzas: $$(grep -c '^Package: ' "$$INDEX")"
+
+      PUBLISHED=0
+      SKIPPED=0
+      NEEDS_KEY=0
+
+      for dir in "$$CONTRIB"/*/; do
+        [ -d "$$dir" ] || continue
+        pack="$$(basename "$$dir")"
+        echo "--- :art: $$pack"
+
+        # An unknown pack is a HARD FAILURE, not a skip. The packaging script
+        # refuses to guess an author or a licence (see its metadata block), and
+        # art that silently never ships is worse than a red step somebody reads:
+        # add the pack's metadata case and it builds.
+        ( cd "$$PKG_ROOT" && bash build/build-wallpaper-contrib-deb.sh "$$pack" )
+
+        deb="$$(find "$$PKG_ROOT/build/wallpaper-debs" -maxdepth 1 -type f \
+                  -name "ncz-wallpapers-$${pack}_*_all.deb" -print -quit)"
+        [ -n "$$deb" ] || {
+          echo "[wallpaper_packs] ERROR: $$pack produced no .deb" >&2
+          exit 1
+        }
+
+        # Identity comes off the ARTIFACT, never from a constructed filename --
+        # the same rule ncz-reprepro-publish.sh applies at the receiving end.
+        name="$$(dpkg-deb -f "$$deb" Package)"
+        version="$$(dpkg-deb -f "$$deb" Version)"
+        [ -n "$$name" ] && [ -n "$$version" ] || {
+          echo "[wallpaper_packs] ERROR: could not read Package/Version from $$deb" >&2
+          exit 1
+        }
+
+        if awk -v n="$$name" -v v="$$version" '
+              /^Package: /{p=$$2} /^Version: /{if(p==n && $$2==v) found=1}
+              END{exit !found}' "$$INDEX"; then
+          echo "already published: $${name}_$${version} — nothing to do"
+          SKIPPED=$$((SKIPPED + 1))
+          continue
+        fi
+
+        if [ ! -r "$$HOME/.ssh/id_ed25519_argonas_apt" ]; then
+          # Surfaced as a persistent build annotation rather than a red step or
+          # a silent skip. The arm64 agent moved TYDEUS -> ULTRA on 2026-09-05
+          # and the ARGOS deploy key did not move with it, so NOTHING can
+          # publish from CI until it is reprovisioned -- including the
+          # Singularity Desktop .deb. A hidden skip would let that gap persist
+          # unnoticed; a red step on every nightly would train people to ignore
+          # red. The packaging itself is still fully exercised above.
+          echo "[wallpaper_packs] NOT PUBLISHED: $${name}_$${version}" >&2
+          echo "[wallpaper_packs] ~/.ssh/id_ed25519_argonas_apt is missing on this agent." >&2
+          NEEDS_KEY=$$((NEEDS_KEY + 1))
+          continue
+        fi
+
+        echo ":rocket: publishing $${name}_$${version} to the NCZ-OS apt repository"
+        ssh -o BatchMode=yes -o ConnectTimeout=15 \
+            -i "$$HOME/.ssh/id_ed25519_argonas_apt" \
+            jasonperlow@192.168.207.22 < "$$deb"
+        PUBLISHED=$$((PUBLISHED + 1))
+      done
+
+      echo "--- :art: $$PUBLISHED published, $$SKIPPED already current, $$NEEDS_KEY blocked on the deploy key"
+
+      if [ "$$NEEDS_KEY" -gt 0 ] && command -v buildkite-agent >/dev/null 2>&1; then
+        buildkite-agent annotate --style warning --context wallpaper-packs \
+          "**$$NEEDS_KEY wallpaper pack(s) built but NOT published.** \`~/.ssh/id_ed25519_argonas_apt\` is missing on the arm64 agent, so nothing can reach the ARGOS apt host. This blocks the Singularity Desktop .deb publish too. Reprovision the ARGOS deploy key on the agent host." || true
+      fi

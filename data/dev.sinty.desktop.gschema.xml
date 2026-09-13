@@ -140,6 +140,24 @@
         desktop background overlay, sourced from the wallpapers metadata
         (Bing copyright, OCS author). Empty means no author shown.</description>
     </key>
+    <!-- User-facing toggle for the attribution overlay itself, independent
+         of whether background-attribution-title/-author carry metadata.
+         Read (unguarded) by Background.update_attribution() in
+         singularity-shell, which routes a false value through the same
+         empty-title-and-empty-author early-return used when the wallpaper
+         simply has no metadata. Bound live to the "Show Wallpaper Info"
+         SwitchRow in the desktop settings page (desktop_page.vala), which
+         also listens for settings.changed["show-wallpaper-attribution"] so
+         the overlay updates immediately without waiting for the next
+         wallpaper change. -->
+    <key name="show-wallpaper-attribution" type="b">
+      <default>true</default>
+      <summary>Show wallpaper attribution overlay</summary>
+      <description>Whether to display the title and photographer/author
+        credit overlay on the desktop background. Defaults to on so
+        attribution is visible whenever the current wallpaper carries
+        metadata.</description>
+    </key>
     <key name="recent-wallpapers" type="as">
       <default>[]</default>
       <summary>List of recently used wallpaper URIs</summary>

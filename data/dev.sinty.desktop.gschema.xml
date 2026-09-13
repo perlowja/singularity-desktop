@@ -187,6 +187,22 @@
       <default>[]</default>
       <summary>User favorite wallpaper paths</summary>
     </key>
+    <key name="wallpaper-rotation-min-width" type="i">
+      <default>1280</default>
+      <summary>Minimum image width considered for random rotation</summary>
+    </key>
+    <key name="wallpaper-rotation-min-height" type="i">
+      <default>720</default>
+      <summary>Minimum image height considered for random rotation</summary>
+    </key>
+    <key name="wallpaper-rotation-match-aspect" type="b">
+      <default>false</default>
+      <summary>Prefer wallpapers matching the display's aspect ratio during rotation</summary>
+    </key>
+    <key name="wallpaper-rotation-favor-favorites" type="b">
+      <default>true</default>
+      <summary>Weight random wallpaper rotation toward favorited images</summary>
+    </key>
     <!-- Read (unguarded, as the invoking desktop user, never as root) by
          the distro's ncz-wallpaper-pack-inventory helper -- see
          ArtistPackManager in singularity-shell. Names which apt source(s)

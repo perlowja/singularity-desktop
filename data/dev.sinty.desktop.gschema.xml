@@ -120,6 +120,20 @@
       <default>[]</default>
       <summary>List of recently used wallpaper URIs</summary>
     </key>
+    <key name="artist-pack-apt-sources" type="as">
+      <default>[]</default>
+      <summary>Artist Pack apt sources</summary>
+      <description>List of apt repository base URIs treated as sources of
+        curated Artist Packs (ncz-wallpapers-* debs) by the Desktop settings'
+        Artist Pack browser. Only packages whose apt candidate URI is under
+        one of these bases are listed for browsing/installing. Empty means no
+        source is trusted, so the browser shows nothing rather than silently
+        trusting an unconfigured repository. Distributions set this via a
+        packaged gschema override (see dev.sinty.desktop.gschema.override in
+        the distro's post-install), not by patching this default -- the whole
+        point is that the trusted source list is deployment configuration,
+        not something baked into the browser's code.</description>
+    </key>
     <key name="custom-shortcuts" type="a{ss}">
       <default>{}</default>
       <summary>Map of action names to custom accelerator strings</summary>

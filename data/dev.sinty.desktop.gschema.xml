@@ -178,6 +178,26 @@
       <default>[]</default>
       <summary>User favorite wallpaper paths</summary>
     </key>
+    <!-- Read (unguarded, as the invoking desktop user, never as root) by
+         the distro's ncz-wallpaper-pack-inventory helper -- see
+         ArtistPackManager in singularity-shell. Names which apt source(s)
+         count as a trusted Artist Pack source; the inventory script uses
+         this to decide what to list, and the privileged
+         ncz-wallpaper-pack-install helper independently re-validates a
+         requested source against the system's ACTUAL apt configuration
+         (a root-owned file, not this per-user GSettings key) plus the
+         package's live apt candidate before installing anything -- this
+         key is a listing filter, never itself the security boundary.
+         Empty by default: a distro/install must explicitly opt a source in
+         rather than the browser silently trusting the vendor default. -->
+    <key name="artist-pack-apt-sources" type="as">
+      <default>[]</default>
+      <summary>Apt sources treated as Artist Pack sources</summary>
+      <description>Which configured apt source(s) the Artist Pack browser's
+        inventory helper treats as offering curated ncz-wallpapers-* Artist
+        Packs. Empty means no packs are listed even if the backend helpers
+        are installed.</description>
+    </key>
     <key name="custom-shortcuts" type="a{ss}">
       <default>{}</default>
       <summary>Map of action names to custom accelerator strings</summary>

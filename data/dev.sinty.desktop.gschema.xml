@@ -675,5 +675,19 @@
       <summary>Blur Strength</summary>
       <description>Strength of the compositor blur used by background materials.</description>
     </key>
+    <key name="wallpaper-effect" type="s">
+      <default>'none'</default>
+      <summary>Image effect applied to the desktop wallpaper</summary>
+      <description>One of "none", "grayscale", "blur", "oil-paint", "quote". Applied to the wallpaper image before display; see WallpaperEffects.</description>
+    </key>
+    <key name="wallpaper-effect-blur-radius" type="i">
+      <default>8</default>
+      <range min="1" max="64"/>
+      <summary>Blur radius in pixels when wallpaper-effect is "blur"</summary>
+    </key>
+    <key name="wallpaper-effect-quote-text" type="s">
+      <default>''</default>
+      <summary>Text to overlay when wallpaper-effect is "quote"</summary>
+    </key>
   </schema>
 </schemalist>

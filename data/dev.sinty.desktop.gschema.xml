@@ -162,6 +162,22 @@
       <default>[]</default>
       <summary>List of recently used wallpaper URIs</summary>
     </key>
+    <key name="wallpaper-history-back" type="as">
+      <default>[]</default>
+      <summary>Wallpapers available through backward navigation</summary>
+    </key>
+    <key name="wallpaper-history-forward" type="as">
+      <default>[]</default>
+      <summary>Wallpapers available through forward navigation</summary>
+    </key>
+    <key name="wallpaper-history-current" type="s">
+      <default>''</default>
+      <summary>Current wallpaper in navigation history</summary>
+    </key>
+    <key name="wallpaper-favorites" type="as">
+      <default>[]</default>
+      <summary>User favorite wallpaper paths</summary>
+    </key>
     <key name="custom-shortcuts" type="a{ss}">
       <default>{}</default>
       <summary>Map of action names to custom accelerator strings</summary>

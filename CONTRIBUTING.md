@@ -147,7 +147,7 @@ fix[closes #2]: Discord doesn't open on Singularity desktop
 ```
 
 Do not list AI tools as co-authors with `Co-Authored-By`. For AI-assisted
-commits, use the `Assisted-by` and `AI scope` trailers documented in the
+commits, use the `Assisted-by` and `AI-Scope` trailers documented in the
 [README](README.md#use-of-generative-ai), including the tool and model version.
 
 

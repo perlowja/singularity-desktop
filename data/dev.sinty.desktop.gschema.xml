@@ -158,6 +158,15 @@
         attribution is visible whenever the current wallpaper carries
         metadata.</description>
     </key>
+    <!-- User-facing corner choice for the attribution overlay, independent
+         of whether show-wallpaper-attribution makes the overlay visible. -->
+    <key name="wallpaper-attribution-position" type="s">
+      <default>'left'</default>
+      <summary>Which bottom corner the wallpaper attribution overlay floats in</summary>
+      <description>Either "left" or "right". Controls which side of the screen
+        the title/photographer-credit caption anchors to, independent of
+        whether it's shown at all (see show-wallpaper-attribution).</description>
+    </key>
     <key name="recent-wallpapers" type="as">
       <default>[]</default>
       <summary>List of recently used wallpaper URIs</summary>

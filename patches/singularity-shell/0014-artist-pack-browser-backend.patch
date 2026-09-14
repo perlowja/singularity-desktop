@@ -177,18 +177,18 @@ index 0000000..3869dc1
 +done
 +printf ']\n'
 diff --git a/meson.build b/meson.build
-index 8b9866c..9d9a85d 100644
+index d0b09a7..1695c43 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -286,6 +286,7 @@ singularity_core_sources = files(
-     'src/core/wallpaper_gallery.vala',
-     'src/core/wallpaper_rotation_state.vala',
-     'src/core/wallpaper_rotator.vala',
+@@ -292,6 +292,7 @@ singularity_core_sources = files(
+     'src/core/wallpaper_thumbnail_cache.vala',
+     'src/core/wallpaper_provider.vala',
+     'src/core/settings_safety.vala',
 +    'src/core/artist_pack_manager.vala',
      'src/core/wayland_gamma_backend.vala',
      'src/core/shortcut_manager.vala',
      'src/core/ush_portal.vala',
-@@ -482,6 +483,19 @@ install_data('data/fan-control/dev.sinty.FanControl.conf',
+@@ -490,6 +491,19 @@ install_data('data/fan-control/dev.sinty.FanControl.conf',
  install_data('data/fan-control/dev.sinty.fan-control.policy',
    install_dir: get_option('datadir') / 'polkit-1' / 'actions')
  
@@ -207,12 +207,12 @@ index 8b9866c..9d9a85d 100644
 +
  wallpaper_collections_test = executable('wallpaper-collections-test',
    sources: ['src/core/wallpaper_collections.vala', 'tests/wallpaper_collections_test.vala'],
-   dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep],
+   dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep, json_dep],
 diff --git a/src/components/sidebar/pages/desktop_page.vala b/src/components/sidebar/pages/desktop_page.vala
-index 6127510..a1649e7 100644
+index b5777b2..d924f20 100644
 --- a/src/components/sidebar/pages/desktop_page.vala
 +++ b/src/components/sidebar/pages/desktop_page.vala
-@@ -28,6 +28,12 @@ namespace Singularity {
+@@ -32,6 +32,12 @@ namespace Singularity {
          private int wallpaper_accent_generation = 0;
          private string cached_wallpaper_accent = "#3584e4";
          private static bool wallpaper_css_loaded = false;
@@ -225,7 +225,7 @@ index 6127510..a1649e7 100644
  
          // Label for a stored rotate-interval that doesn't match a fixed
          // preset. Hours when it divides evenly, else minutes, else seconds
-@@ -286,6 +292,25 @@ namespace Singularity {
+@@ -432,6 +438,25 @@ namespace Singularity {
  
              add_group(grid_group);
              GLib.Idle.add(() => { populate_grid(); return GLib.Source.REMOVE; });
@@ -251,8 +251,8 @@ index 6127510..a1649e7 100644
              refresh_wallpaper_accent_async();
              update_preview_async();
              var wm = WallpaperManager.get_default();
-@@ -1917,6 +1942,228 @@ namespace Singularity {
-             });
+@@ -2223,6 +2248,228 @@ namespace Singularity {
+             }
          }
  
 +        // How deep to walk below a scan root. /usr/share/backgrounds holds

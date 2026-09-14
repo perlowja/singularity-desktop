@@ -1,0 +1,213 @@
+diff --git a/config/systemd-user/singularity-session.target b/config/systemd-user/singularity-session.target
+new file mode 100644
+index 0000000..13cc26f
+--- /dev/null
++++ b/config/systemd-user/singularity-session.target
+@@ -0,0 +1,5 @@
++[Unit]
++Description=Singularity Desktop session
++BindsTo=graphical-session.target
++Wants=graphical-session-pre.target
++After=graphical-session-pre.target
+diff --git a/meson.build b/meson.build
+index 8a56409..e50a45c 100644
+--- a/meson.build
++++ b/meson.build
+@@ -18,6 +18,16 @@ configure_file(
+   install_mode: 'rwxr-xr-x',
+ )
+ 
++# systemd's user-unit search path does not follow our --prefix, so a
++# prefix-relative install dir lands where systemd never looks. Fall back to
++# one only when systemd.pc isn't available to ask (e.g. a minimal sysroot).
++systemd_dep = dependency('systemd', required: false)
++if systemd_dep.found()
++  systemd_user_unit_dir = systemd_dep.get_variable(pkgconfig: 'systemduserunitdir')
++else
++  systemd_user_unit_dir = get_option('prefix') / 'lib' / 'systemd' / 'user'
++endif
++
+ install_data(
+   'src/singularity-labwc-session',
+   install_dir: get_option('bindir'),
+@@ -45,3 +55,16 @@ test('session-safe-mode', session_test_bash,
+     'SINGULARITY_TEST_DESKTOP_SESSION':
+       meson.current_build_dir() / 'singularity-desktop-session',
+   })
++test('session-target-lifecycle', session_test_bash,
++  args: files('tests/session_target_lifecycle_test.sh'),
++  env: {
++    'SINGULARITY_TEST_DESKTOP_SESSION':
++      meson.current_build_dir() / 'singularity-desktop-session',
++  })
++
++# graphical-session.target sets RefuseManualStart, so it can only be reached
++# via a unit that BindsTo= it. This target is that unit.
++install_data(
++  'config/systemd-user/singularity-session.target',
++  install_dir: systemd_user_unit_dir,
++)
+diff --git a/src/singularity-desktop-session.in b/src/singularity-desktop-session.in
+index 61a88aa..f4674dd 100755
+--- a/src/singularity-desktop-session.in
++++ b/src/singularity-desktop-session.in
+@@ -120,7 +120,28 @@ if [ -f "$_SPID" ]; then
+     fi
+ fi
+ echo $$ > "$_SPID"
+-trap "rm -f $_SPID" EXIT
++# One systemd --user manager is shared by every login of the same UID, so a
++# second concurrent login (a second seat, or console + SSH) runs its own copy
++# of this launcher under the SAME manager and the SAME singularity-session.target.
++# A marker per running instance turns the unconditional stop below into a
++# reference count: only the last instance to exit actually stops the target.
++_SESSION_MARKERS="${XDG_RUNTIME_DIR:-/tmp}/singularity-session.d"
++mkdir -p "$_SESSION_MARKERS"
++_SESSION_MARKER="$_SESSION_MARKERS/$$"
++: > "$_SESSION_MARKER"
++_session_cleanup() {
++    rm -f "$_SPID" "$_SESSION_MARKER"
++    # graphical-session.target is StopWhenUnneeded=yes, so it only goes away
++    # once nothing binds it -- stopping singularity-session.target while a
++    # sibling login's marker is still present would tear down that login's
++    # portal/audio-autoswitch/etc out from under it.
++    [ -z "$(ls -A "$_SESSION_MARKERS" 2>/dev/null)" ] || return 0
++    systemctl --user --no-block stop singularity-session.target 2>/dev/null || true
++}
++# EXIT only, deliberately: bash runs the EXIT trap for an untrapped fatal signal
++# as well, while an explicit TERM trap would be deferred until the supervisor's
++# foreground child returns -- which on the logout path it never does.
++trap _session_cleanup EXIT
+ 
+ pkill -TERM -x singularity-desktop 2>/dev/null || true
+ pkill -x singularity-polkit-agent 2>/dev/null || true
+@@ -130,6 +151,12 @@ nohup "$(singularity_helper singularity-polkit-agent)" >> "$_STATE/polkit.log" 2
+ if [ -x "$BIN/ush-broker" ]; then
+     nohup "$BIN/ush-broker" >> "$_STATE/ush-broker.log" 2>&1 &
+ fi
++# graphical-session.target sets RefuseManualStart and can only be reached via
++# a unit that BindsTo= it. Without this start, the target stays inactive and
++# every WantedBy=graphical-session.target unit -- our own
++# xdg-desktop-portal-singularity.service, foot-server -- silently never runs.
++systemctl --user --no-block start singularity-session.target 2>/dev/null || true
++
+ # Restart the portal so it picks up the live session environment, but do NOT
+ # block on it: xdg-desktop-portal can hang ~25s on its settings-proxy timeout
+ # waiting for our portal backend, which would delay the shell launch below.
+diff --git a/tests/session_target_lifecycle_test.sh b/tests/session_target_lifecycle_test.sh
+new file mode 100755
+index 0000000..4c31d02
+--- /dev/null
++++ b/tests/session_target_lifecycle_test.sh
+@@ -0,0 +1,111 @@
++#!/usr/bin/env bash
++# singularity-session.target is started by the desktop-session launcher and
++# stopped by nothing else. graphical-session.target is StopWhenUnneeded=yes, so
++# it only goes away once nothing binds it -- and a user manager that outlives
++# the session (lingering enabled, or a second concurrent login) keeps ours
++# active after the compositor exits, and with it the portal backend and foot
++# server underneath. This asserts the launcher's exit path issues the matching
++# stop, and that the older pid-file cleanup still runs alongside it.
++set -eu
++
++# Re-entrant stub: the launcher runs this same file as singularity-desktop, and
++# a non-zero exit drives the supervisor to its crash budget so the script exits.
++if [ "${SINGULARITY_TEST_FAKE_DESKTOP:-0}" = "1" ]; then
++    exit 1
++fi
++
++TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/singularity-session-target-test.XXXXXX")
++trap 'rm -rf "$TEST_DIR"' EXIT
++mkdir -p "$TEST_DIR/state" "$TEST_DIR/runtime" "$TEST_DIR/bin"
++chmod 700 "$TEST_DIR/runtime"
++
++SYSTEMCTL_LOG="$TEST_DIR/systemctl.log"
++: > "$SYSTEMCTL_LOG"
++
++cat > "$TEST_DIR/bin/systemctl" <<EOF
++#!/bin/sh
++printf '%s\n' "\$*" >> "$SYSTEMCTL_LOG"
++EOF
++# Keep the launcher's environment probing off the machine running the test.
++for stub in pkill xdg-user-dirs-update dbus-update-activation-environment; do
++    printf '#!/bin/sh\nexit 0\n' > "$TEST_DIR/bin/$stub"
++done
++printf '#!/bin/sh\nprintf "false\\n"\n' > "$TEST_DIR/bin/gsettings"
++chmod +x "$TEST_DIR"/bin/*
++
++export PATH="$TEST_DIR/bin:$PATH"
++export XDG_STATE_HOME="$TEST_DIR/state"
++export XDG_RUNTIME_DIR="$TEST_DIR/runtime"
++export DBUS_SESSION_BUS_ADDRESS="test-bus"
++export SINGULARITY_SESSION_BUILD_ID="session-target-test-build"
++export SINGULARITY_DESKTOP_BINARY="$0"
++export SINGULARITY_TEST_FAKE_DESKTOP=1
++
++# The launcher under test is generated, so point the test at the configured
++# copy in the build dir (SINGULARITY_TEST_DESKTOP_SESSION, set in meson.build).
++# Outside meson, fall back to the raw .in template.
++LAUNCHER="${SINGULARITY_TEST_DESKTOP_SESSION:-$(dirname "$0")/../src/singularity-desktop-session.in}"
++# The supervisor kills $PPID once it gives up, so run the launcher under a
++# wrapper that absorbs that signal instead of the test process itself.
++set +e
++bash -c 'trap "" TERM; bash "$1" & child=$!; wait "$child"' _ "$LAUNCHER"
++set -e
++
++grep -Fq -- "--user --no-block start singularity-session.target" "$SYSTEMCTL_LOG" || {
++    echo "launcher never started singularity-session.target" >&2
++    cat "$SYSTEMCTL_LOG" >&2
++    exit 1
++}
++grep -Fq -- "--user --no-block stop singularity-session.target" "$SYSTEMCTL_LOG" || {
++    echo "launcher exited without stopping singularity-session.target" >&2
++    cat "$SYSTEMCTL_LOG" >&2
++    exit 1
++}
++
++# Order matters: a stop that raced ahead of the start would leave the target up.
++START_LINE=$(grep -Fn -- "start singularity-session.target" "$SYSTEMCTL_LOG" | head -1 | cut -d: -f1)
++STOP_LINE=$(grep -Fn -- "stop singularity-session.target" "$SYSTEMCTL_LOG" | head -1 | cut -d: -f1)
++[ "$STOP_LINE" -gt "$START_LINE" ] || {
++    echo "stop (line $STOP_LINE) did not follow start (line $START_LINE)" >&2
++    cat "$SYSTEMCTL_LOG" >&2
++    exit 1
++}
++
++# The pre-existing pid-file cleanup has to survive being moved into the
++# trap function that now also stops the target.
++[ ! -e "$XDG_RUNTIME_DIR/singularity-desktop-session.pid" ] || {
++    echo "launcher left its pid file behind" >&2
++    exit 1
++}
++
++# Scenario 2: a sibling login (same UID, same XDG_RUNTIME_DIR, same systemd
++# --user manager) is still running when this login exits. Simulated by
++# planting a session marker the launcher did not create itself -- it must
++# leave the target running for the sibling rather than stopping it.
++: > "$SYSTEMCTL_LOG"
++SIBLING_MARKER="$XDG_RUNTIME_DIR/singularity-session.d/sibling-fake-pid"
++mkdir -p "$(dirname "$SIBLING_MARKER")"
++: > "$SIBLING_MARKER"
++
++set +e
++bash -c 'trap "" TERM; bash "$1" & child=$!; wait "$child"' _ "$LAUNCHER"
++set -e
++
++grep -Fq -- "--user --no-block start singularity-session.target" "$SYSTEMCTL_LOG" || {
++    echo "launcher never started singularity-session.target on the second run" >&2
++    cat "$SYSTEMCTL_LOG" >&2
++    exit 1
++}
++if grep -Fq -- "--user --no-block stop singularity-session.target" "$SYSTEMCTL_LOG"; then
++    echo "launcher stopped singularity-session.target while a sibling login's marker was still present" >&2
++    cat "$SYSTEMCTL_LOG" >&2
++    exit 1
++fi
++[ -e "$SIBLING_MARKER" ] || {
++    echo "launcher removed a marker it did not create" >&2
++    exit 1
++}
++[ ! -e "$XDG_RUNTIME_DIR/singularity-desktop-session.pid" ] || {
++    echo "launcher left its pid file behind on the second run" >&2
++    exit 1
++}

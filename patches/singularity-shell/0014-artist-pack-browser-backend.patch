@@ -1,0 +1,679 @@
+diff --git a/data/artist-packs/dev.sinty.desktop.artist-pack-install.policy b/data/artist-packs/dev.sinty.desktop.artist-pack-install.policy
+new file mode 100644
+index 0000000..8885c2d
+--- /dev/null
++++ b/data/artist-packs/dev.sinty.desktop.artist-pack-install.policy
+@@ -0,0 +1,16 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
++ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
++<policyconfig>
++  <vendor>Singularity</vendor>
++  <action id="dev.sinty.desktop.artist-pack-install">
++    <description>Install an Artist Pack</description>
++    <message>Authentication is required to install wallpaper packages</message>
++    <icon_name>preferences-desktop-wallpaper-symbolic</icon_name>
++    <defaults>
++      <allow_any>auth_admin</allow_any>
++      <allow_inactive>auth_admin</allow_inactive>
++      <allow_active>auth_admin_keep</allow_active>
++    </defaults>
++  </action>
++</policyconfig>
+diff --git a/data/artist-packs/singularity-artist-pack-install b/data/artist-packs/singularity-artist-pack-install
+new file mode 100755
+index 0000000..0e4d14a
+--- /dev/null
++++ b/data/artist-packs/singularity-artist-pack-install
+@@ -0,0 +1,55 @@
++#!/bin/sh
++# singularity-artist-pack-install -- privileged Artist Pack installer.
++#
++# Invoked via pkexec (dev.sinty.desktop.artist-pack-install), so it runs as
++# root with the CALLER's argv but none of the caller's session state -- no
++# GSettings/dconf, no desktop D-Bus session. It therefore never trusts the
++# `source` argument at face value: it re-derives the set of currently
++# configured apt sources itself (root-owned, on disk) and refuses to act
++# unless PACKAGE's live apt candidate actually comes from a URI in that set.
++# This is what makes the contract safe even though a pkexec-elevated process
++# cannot re-read the desktop user's artist-pack-apt-sources GSettings key the
++# way the unprivileged inventory script does.
++#
++# Usage: singularity-artist-pack-install PACKAGE SOURCE_URI
++# Idempotent: installing an already-installed package at the current
++# candidate version is a safe no-op (apt-get install's own behaviour);
++# re-running this against the same PACKAGE/SOURCE_URI never duplicates state.
++set -eu
++
++PACKAGE="${1:-}"
++SOURCE_URI="${2:-}"
++[ -n "$PACKAGE" ] && [ -n "$SOURCE_URI" ] || {
++    echo "usage: $0 PACKAGE SOURCE_URI" >&2
++    exit 2
++}
++# Package names are a fixed, narrow charset -- reject anything else outright
++# rather than letting it reach apt-get as a crafted argument.
++case "$PACKAGE" in
++    *[!a-zA-Z0-9.+-]*|"")
++        echo "refusing: '$PACKAGE' is not a valid package name" >&2
++        exit 1
++        ;;
++esac
++
++command -v apt-cache >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1 || {
++    echo "apt is not available on this system" >&2
++    exit 1
++}
++
++POLICY=$(apt-cache policy "$PACKAGE" 2>/dev/null || true)
++CANDIDATE=$(printf '%s' "$POLICY" | awk '/Candidate:/{print $2; exit}')
++[ -n "$CANDIDATE" ] && [ "$CANDIDATE" != "(none)" ] || {
++    echo "refusing: '$PACKAGE' has no installation candidate" >&2
++    exit 1
++}
++# The policy block lists one "<priority> <URI> <suite>/<component> ..." line
++# per source carrying a version of this package; the candidate's own origin
++# must be present among them, and it must match the URI the caller supplied --
++# not merely "some configured source carries this package somewhere".
++printf '%s' "$POLICY" | grep -F "$SOURCE_URI" >/dev/null || {
++    echo "refusing: '$PACKAGE' candidate $CANDIDATE is not associated with source $SOURCE_URI" >&2
++    exit 1
++}
++
++exec apt-get install -y --no-install-recommends "$PACKAGE"
+diff --git a/data/artist-packs/singularity-artist-pack-inventory b/data/artist-packs/singularity-artist-pack-inventory
+new file mode 100755
+index 0000000..3869dc1
+--- /dev/null
++++ b/data/artist-packs/singularity-artist-pack-inventory
+@@ -0,0 +1,89 @@
++#!/bin/sh
++# singularity-artist-pack-inventory -- list Artist Packs available from the
++# distro-configured apt source(s), plus which are already installed.
++#
++# Unprivileged. Reads dev.sinty.desktop's `artist-pack-apt-sources` key: a
++# list of one-line apt sources ("deb URI SUITE COMPONENT..."). ANY package
++# published by a configured source counts as an Artist Pack -- this script
++# never filters on package name, so a distro (or a third-party repo) is free
++# to name its packages however it likes; the configured source IS the trust
++# boundary. An empty/unset key means no configured sources, so an empty JSON
++# array is printed, not an error -- ArtistPackManager.is_available() already
++# gates whether this section is shown at all.
++#
++# Package-manager specific by necessity (this build targets apt), but the
++# CONTRACT is not: fixed stdout schema, no apt-specific fields leak into it.
++# A distro on a different package manager supplies its own binary satisfying
++# this same contract at the same fixed path (see ArtistPackManager).
++#
++# Output: a JSON array of {package, title, summary, version, source, installed}
++# on stdout, one line at most per package. Exit 0 even when there is nothing
++# to report; non-zero is reserved for a genuine failure to query apt.
++set -eu
++
++json_escape() {
++    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e ':a;N;$!ba;s/\n/\\n/g'
++}
++
++SOURCES_RAW=$(gsettings get dev.sinty.desktop artist-pack-apt-sources 2>/dev/null || printf '@as []')
++# gsettings prints a GVariant array literal, e.g. ['deb https://...', ...] --
++# one source line per output line.
++SOURCE_LINES=$(printf '%s\n' "$SOURCES_RAW" \
++    | sed -e "s/^@as //" -e "s/^\[//" -e "s/\]\s*$//" \
++    | tr ',' '\n' \
++    | sed -e "s/^[[:space:]]*'//" -e "s/'[[:space:]]*$//" \
++    | grep -v '^[[:space:]]*$' || true)
++
++[ -n "$SOURCE_LINES" ] || { printf '[]\n'; exit 0; }
++command -v apt-cache >/dev/null 2>&1 || { printf '[]\n'; exit 0; }
++command -v apt-get >/dev/null 2>&1 || { printf '[]\n'; exit 0; }
++
++first=1
++printf '['
++printf '%s\n' "$SOURCE_LINES" | while IFS= read -r source_line; do
++    [ -n "$source_line" ] || continue
++    uri=$(printf '%s' "$source_line" | awk '{print $2}')
++    suite=$(printf '%s' "$source_line" | awk '{print $3}')
++    [ -n "$uri" ] && [ -n "$suite" ] || continue
++
++    # The index file apt actually resolved for this source, so we read
++    # exactly what apt itself considers to belong to it -- not a re-derived
++    # guess at the on-disk lists/ filename.
++    index_file=$(apt-get indextargets --format '$(FILENAME)' \
++        "Repo-URI: $uri" "Codename: $suite" 2>/dev/null | head -1)
++    [ -n "$index_file" ] && [ -r "$index_file" ] || continue
++
++    pkg=""
++    version=""
++    summary=""
++    while IFS= read -r line; do
++        case "$line" in
++            "Package: "*) pkg=${line#Package: } ;;
++            "Version: "*) version=${line#Version: } ;;
++            "Description: "*|"Description-en: "*) summary=${line#*: } ;;
++            "")
++                [ -n "$pkg" ] || continue
++                installed=false
++                dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q '^install ok installed$' && installed=true
++                [ "$first" = 1 ] || printf ','
++                first=0
++                printf '{"package":"%s","title":"%s","summary":"%s","version":"%s","source":"%s","installed":%s}' \
++                    "$(json_escape "$pkg")" "$(json_escape "$pkg")" "$(json_escape "$summary")" \
++                    "$(json_escape "$version")" "$(json_escape "$uri")" "$installed"
++                pkg=""; version=""; summary=""
++                ;;
++        esac
++    done < "$index_file"
++    # A Packages file with no trailing blank line leaves the last stanza
++    # unflushed by the loop above.
++    if [ -n "$pkg" ]; then
++        installed=false
++        dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q '^install ok installed$' && installed=true
++        [ "$first" = 1 ] || printf ','
++        first=0
++        printf '{"package":"%s","title":"%s","summary":"%s","version":"%s","source":"%s","installed":%s}' \
++            "$(json_escape "$pkg")" "$(json_escape "$pkg")" "$(json_escape "$summary")" \
++            "$(json_escape "$version")" "$(json_escape "$uri")" "$installed"
++    fi
++done
++printf ']\n'
+diff --git a/meson.build b/meson.build
+index 8b9866c..9d9a85d 100644
+--- a/meson.build
++++ b/meson.build
+@@ -286,6 +286,7 @@ singularity_core_sources = files(
+     'src/core/wallpaper_gallery.vala',
+     'src/core/wallpaper_rotation_state.vala',
+     'src/core/wallpaper_rotator.vala',
++    'src/core/artist_pack_manager.vala',
+     'src/core/wayland_gamma_backend.vala',
+     'src/core/shortcut_manager.vala',
+     'src/core/ush_portal.vala',
+@@ -482,6 +483,19 @@ install_data('data/fan-control/dev.sinty.FanControl.conf',
+ install_data('data/fan-control/dev.sinty.fan-control.policy',
+   install_dir: get_option('datadir') / 'polkit-1' / 'actions')
+ 
++# Reference Artist Pack backend (apt-based). ArtistPackManager resolves its
++# two helpers at FIXED /usr/local/bin paths, never via PATH (privilege-
++# escalation reasons documented in artist_pack_manager.vala), so this
++# installs there directly rather than through get_option('bindir') -- a
++# distro on a different package manager supplies its own pair of binaries
++# satisfying the same contract at the same two paths instead of using these.
++install_data('data/artist-packs/singularity-artist-pack-inventory',
++  install_dir: '/usr/local/bin', install_mode: 'rwxr-xr-x')
++install_data('data/artist-packs/singularity-artist-pack-install',
++  install_dir: '/usr/local/bin', install_mode: 'rwxr-xr-x')
++install_data('data/artist-packs/dev.sinty.desktop.artist-pack-install.policy',
++  install_dir: get_option('datadir') / 'polkit-1' / 'actions')
++
+ wallpaper_collections_test = executable('wallpaper-collections-test',
+   sources: ['src/core/wallpaper_collections.vala', 'tests/wallpaper_collections_test.vala'],
+   dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep],
+diff --git a/src/components/sidebar/pages/desktop_page.vala b/src/components/sidebar/pages/desktop_page.vala
+index 6127510..a1649e7 100644
+--- a/src/components/sidebar/pages/desktop_page.vala
++++ b/src/components/sidebar/pages/desktop_page.vala
+@@ -28,6 +28,12 @@ namespace Singularity {
+         private int wallpaper_accent_generation = 0;
+         private string cached_wallpaper_accent = "#3584e4";
+         private static bool wallpaper_css_loaded = false;
++        private PreferencesGroup? artist_pack_group = null;
++        private int artist_pack_refresh_generation = 0;
++        // Packages whose apt transaction is in flight. Survives the row
++        // teardown that a refresh performs, so a rebuilt row can render the
++        // install state the freshly-fetched inventory does not know about yet.
++        private HashSet<string> artist_packs_installing = new HashSet<string>();
+ 
+         // Label for a stored rotate-interval that doesn't match a fixed
+         // preset. Hours when it divides evenly, else minutes, else seconds
+@@ -286,6 +292,25 @@ namespace Singularity {
+ 
+             add_group(grid_group);
+             GLib.Idle.add(() => { populate_grid(); return GLib.Source.REMOVE; });
++
++            // Artist Packs: curated wallpaper packs installed via the
++            // distro's package manager. Entirely opt-in -- it only appears
++            // when the distro ships the complete backend contract (see
++            // ArtistPackManager), which is where the trusted apt source(s)
++            // live (dev.sinty.desktop artist-pack-apt-sources). Nothing here
++            // hardcodes a repository.
++            if (ArtistPackManager.get_default().is_available()) {
++                artist_pack_group = new PreferencesGroup(
++                    _("Artist Packs"),
++                    _("Curated wallpaper packs, installed through the system package manager."));
++                var artist_pack_refresh_btn = new Button.from_icon_name("view-refresh-symbolic");
++                artist_pack_refresh_btn.has_frame = false;
++                artist_pack_refresh_btn.tooltip_text = _("Refresh");
++                artist_pack_refresh_btn.clicked.connect(() => { populate_artist_packs_async.begin(); });
++                artist_pack_group.add_header_suffix(artist_pack_refresh_btn);
++                add_group(artist_pack_group);
++                populate_artist_packs_async.begin();
++            }
+             refresh_wallpaper_accent_async();
+             update_preview_async();
+             var wm = WallpaperManager.get_default();
+@@ -1917,6 +1942,228 @@ namespace Singularity {
+             });
+         }
+ 
++        // How deep to walk below a scan root. /usr/share/backgrounds holds
++        // ncz/, and a pack sits one further down (ncz/brandon-perlow), so two
++        // levels is what the shipped layout needs. The bound exists because
++        // $XDG_DATA_HOME/backgrounds is user-writable: someone who points it at
++        // a deep tree should not stall the picker.
++        private const int WALLPAPER_SCAN_MAX_DEPTH = 3;
++
++        // Directories declared by installed wallpaper packs.
++        //
++        // Reading the registry rather than guessing paths is what surfaces the
++        // Bing provider at all: its Dir= is /var/cache/ncz-wallpapers/bing,
++        // which is not under any backgrounds path and is unreachable by
++        // directory walking alone.
++        //
++        // .collection is the current on-disk format (KeyFile). The design in
++        // docs/WALLPAPER-PACKS.md moves to .pack.json and accepts both for one
++        // release; when that lands, parse *.pack.json here too rather than
++        // replacing this, or packs installed by the older deb disappear from
++        // the picker on upgrade.
++        private static Gee.ArrayList<string> collection_dirs() {
++            var dirs = new ArrayList<string>();
++            var roots = new ArrayList<string>();
++            foreach (unowned string d in GLib.Environment.get_system_data_dirs())
++                roots.add(GLib.Path.build_filename(d, "ncz-wallpapers", "collections"));
++            roots.add(GLib.Path.build_filename(GLib.Environment.get_user_data_dir(),
++                                               "ncz-wallpapers", "collections"));
++
++            foreach (string root in roots) {
++                try {
++                    var dir = File.new_for_path(root);
++                    if (!dir.query_exists()) continue;
++                    var en = dir.enumerate_children("standard::name", FileQueryInfoFlags.NONE, null);
++                    FileInfo info;
++                    while ((info = en.next_file(null)) != null) {
++                        if (!info.get_name().has_suffix(".collection")) continue;
++                        var kf = new GLib.KeyFile();
++                        try {
++                            kf.load_from_file(GLib.Path.build_filename(root, info.get_name()),
++                                              GLib.KeyFileFlags.NONE);
++                            string d = kf.get_string("Collection", "Dir");
++                            if (d != null && d != "" && !dirs.contains(d)) dirs.add(d);
++                        } catch (Error e) {
++                            // A malformed or Dir-less collection is skipped, not
++                            // fatal: one bad pack must not empty the picker.
++                        }
++                    }
++                } catch (Error e) {
++                }
++            }
++            return dirs;
++        }
++
++        // Walk one scan root, collecting images.
++        //
++        // The previous implementation enumerated a single level and kept only
++        // entries whose content-type began with image/. /usr/share/backgrounds
++        // contains no images at all -- only ncz/ and singularity/ -- and a
++        // directory's content-type is inode/directory, so every shipped
++        // wallpaper was silently skipped. The picker had never displayed them.
++        private static void scan_wallpaper_dir(string path,
++                                               ArrayList<WallpaperCandidate> candidates,
++                                               HashSet<string> thread_seen,
++                                               HashSet<string> visited_dirs,
++                                               int depth) {
++            if (depth > WALLPAPER_SCAN_MAX_DEPTH) return;
++            // The scan roots overlap by construction (/usr/share/backgrounds and
++            // /usr/share/backgrounds/singularity are both roots) and a pack may
++            // declare a Dir already reachable from one of them. Without this,
++            // those directories are walked more than once.
++            if (visited_dirs.contains(path)) return;
++            visited_dirs.add(path);
++
++            try {
++                var dir = File.new_for_path(path);
++                if (!dir.query_exists()) return;
++                var enumerator = dir.enumerate_children(
++                    "standard::name,standard::content-type,standard::type,standard::is-symlink,standard::symlink-target",
++                    FileQueryInfoFlags.NONE, null);
++                FileInfo info;
++                while ((info = enumerator.next_file(null)) != null) {
++                    var child = dir.get_child(info.get_name());
++
++                    if (info.get_file_type() == FileType.DIRECTORY) {
++                        // Not followed as a directory either: a symlinked
++                        // directory is the easy way to walk in a circle.
++                        if (info.get_is_symlink()) continue;
++                        scan_wallpaper_dir(child.get_path(), candidates, thread_seen,
++                                           visited_dirs, depth + 1);
++                        continue;
++                    }
++
++                    // default.jpg is a symlink the rotator repoints at whichever
++                    // wallpaper is current, at a target enumerated in this same
++                    // directory -- following it would list one image twice, once
++                    // under its own name and once as "default". Only elide a
++                    // same-directory pointer like that one: a pack that ships an
++                    // image as a symlink to a shared asset OUTSIDE this directory
++                    // is real content, and the previous scanner listed it fine
++                    // (content-type resolves through the link either way, since
++                    // enumerate_children above passes no NOFOLLOW flag).
++                    if (info.get_is_symlink()) {
++                        string? target = info.get_symlink_target();
++                        if (target != null) {
++                            string resolved = Path.is_absolute(target)
++                                ? target
++                                : Path.build_filename(path, target);
++                            if (Path.get_dirname(resolved) == path) continue;
++                        }
++                    }
++
++                    string mime = info.get_content_type();
++                    if (mime == null || !mime.has_prefix("image/")) continue;
++
++                    string uri = child.get_uri();
++                    if (thread_seen.contains(uri)) continue;
++                    thread_seen.add(uri);
++                    candidates.add(new WallpaperCandidate(uri, false));
++                }
++            } catch (Error e) {
++            }
++        }
++
++        // Lists the Artist Packs available/installed from the distro's
++        // configured apt source(s) and renders one row per pack with an
++        // Install/Installed action. Safe to call repeatedly (e.g. from the
++        // refresh button): a generation counter discards a stale response
++        // that lands after a newer refresh has already started, the same
++        // pattern populate_grid() uses for the wallpaper grid.
++        private async void populate_artist_packs_async() {
++            if (artist_pack_group == null) return;
++            int gen = ++artist_pack_refresh_generation;
++
++            artist_pack_group.clear();
++            var loading_row = new ActionRow(_("Loading..."));
++            loading_row.activatable = false;
++            artist_pack_group.add_row(loading_row);
++
++            Gee.ArrayList<ArtistPackInfo> packs;
++            try {
++                packs = yield ArtistPackManager.get_default().fetch_inventory_async();
++            } catch (Error e) {
++                if (gen != artist_pack_refresh_generation) return;
++                artist_pack_group.clear();
++                var error_row = new ActionRow(_("Could not list Artist Packs"), e.message, "dialog-error-symbolic");
++                error_row.activatable = false;
++                artist_pack_group.add_row(error_row);
++                return;
++            }
++            if (gen != artist_pack_refresh_generation) return;
++
++            artist_pack_group.clear();
++            if (packs.size == 0) {
++                var empty_row = new ActionRow(
++                    _("No Artist Packs available"),
++                    _("None of the configured apt sources currently offer one, or none are configured."));
++                empty_row.activatable = false;
++                artist_pack_group.add_row(empty_row);
++                return;
++            }
++
++            foreach (var pack in packs) {
++                var row = new ActionRow(pack.title, pack.summary);
++                row.activatable = false;
++                // installing overrides pack.installed: a transaction started
++                // before this refresh predates it, so the fresh inventory
++                // still reports "not installed".
++                bool installing = artist_packs_installing.contains(pack.package);
++                var install_btn = new Button.with_label(
++                    installing ? _("Installing...") : (pack.installed ? _("Installed") : _("Install")));
++                install_btn.sensitive = !installing && !pack.installed;
++                string captured_package = pack.package;
++                string captured_source = pack.source;
++                Button captured_btn = install_btn;
++                install_btn.clicked.connect(() => {
++                    start_artist_pack_install(captured_package, captured_source, captured_btn);
++                });
++                row.add_suffix(install_btn);
++                artist_pack_group.add_row(row);
++            }
++        }
++
++        // A Refresh click during an install destroys `btn`'s row, so track
++        // the generation we started under: if it moved, repopulate instead
++        // of relabelling a detached button.
++        private void start_artist_pack_install(string package, string source, Button btn) {
++            if (!artist_packs_installing.add(package)) return;
++            int gen = artist_pack_refresh_generation;
++            btn.sensitive = false;
++            btn.label = _("Installing...");
++            ArtistPackManager.get_default().install_async.begin(package, source, null, (obj, res) => {
++                artist_packs_installing.remove(package);
++                bool row_alive = (gen == artist_pack_refresh_generation);
++                try {
++                    ArtistPackManager.get_default().install_async.end(res);
++                    if (row_alive) {
++                        btn.label = _("Installed");
++                    } else {
++                        populate_artist_packs_async.begin();
++                    }
++                    // A freshly-installed pack drops a new .collection file,
++                    // which collection_dirs() only re-reads when
++                    // populate_grid() runs. Settings pages are cached, so
++                    // without this the new wallpapers stay invisible until the
++                    // user navigates away and back.
++                    populate_grid();
++                } catch (Error e) {
++                    warning("Artist Pack install of %s failed: %s", package, e.message);
++                    if (!row_alive) {
++                        populate_artist_packs_async.begin();
++                        return;
++                    }
++                    btn.label = _("Install Failed");
++                    GLib.Timeout.add_seconds(4, () => {
++                        if (gen != artist_pack_refresh_generation) return GLib.Source.REMOVE;
++                        btn.label = _("Install");
++                        btn.sensitive = true;
++                        return GLib.Source.REMOVE;
++                    });
++                }
++            });
++        }
++
+         private void populate_grid() {
+             int gen = ++wallpaper_grid_generation;
+             wallpaper_grid.remove_all();
+diff --git a/src/core/artist_pack_manager.vala b/src/core/artist_pack_manager.vala
+new file mode 100644
+index 0000000..cffedc5
+--- /dev/null
++++ b/src/core/artist_pack_manager.vala
+@@ -0,0 +1,191 @@
++using GLib;
++using Gee;
++using Json;
++
++namespace Singularity {
++
++    /**
++     * One curated Artist Pack, available or already installed, from one of
++     * the apt sources configured in dev.sinty.desktop's
++     * artist-pack-apt-sources.
++     */
++    public class ArtistPackInfo : GLib.Object {
++        public string package { get; private set; }
++        public string title { get; private set; }
++        public string summary { get; private set; }
++        public string version { get; private set; }
++        public string source { get; private set; }
++        public bool installed { get; set; }
++
++        public ArtistPackInfo(string package, string title, string summary,
++                               string version, string source, bool installed) {
++            this.package = package;
++            this.title = title;
++            this.summary = summary;
++            this.version = version;
++            this.source = source;
++            this.installed = installed;
++        }
++    }
++
++    public errordomain ArtistPackError {
++        BACKEND_MISSING,
++        BACKEND_FAILED,
++        INVALID_RESPONSE,
++    }
++
++    /**
++     * Browses and installs curated Artist Packs (ncz-wallpapers-* debs).
++     *
++     * Shells out to two distro-provided scripts at FIXED, root-owned
++     * absolute paths, never resolved through PATH (see INSTALL_HELPER).
++     * is_available() gates the complete contract (both helpers, pkexec, the
++     * polkit action) so an inventory-only deployment never shows an Install
++     * button that can't work.
++     *
++     * Which apt source(s) count as an Artist Pack source is the distro's
++     * call, read by the inventory script from `artist-pack-apt-sources` -
++     * this class never reads or filters on that value itself.
++     *
++     * install_async() passes the inventory step's `source` straight through
++     * to the privileged helper rather than having the helper re-derive
++     * trust by re-reading GSettings as root: a pkexec-elevated process
++     * doesn't share the desktop user's dconf session, so the helper instead
++     * re-validates the argv-supplied source against apt's own root-owned
++     * configuration and the package's live candidate.
++     */
++    public class ArtistPackManager : GLib.Object {
++        private static ArtistPackManager? _instance = null;
++
++        /**
++         * Fixed, absolute, root-owned helper paths - deliberately NOT
++         * resolved via Environment.find_program_in_path(). INSTALL_HELPER
++         * is handed to pkexec as the PROGRAM to run as root; a PATH lookup
++         * would let anything earlier on the desktop process's PATH (e.g.
++         * ~/.local/bin) shadow it and get elevated - a local privilege
++         * escalation.
++         */
++        private const string INVENTORY_HELPER = "/usr/local/bin/singularity-artist-pack-inventory";
++        private const string INSTALL_HELPER = "/usr/local/bin/singularity-artist-pack-install";
++        private const string INSTALL_POLICY = "/usr/share/polkit-1/actions/dev.sinty.desktop.artist-pack-install.policy";
++
++        public static ArtistPackManager get_default() {
++            if (_instance == null) _instance = new ArtistPackManager();
++            return _instance;
++        }
++
++        private ArtistPackManager() { }
++
++        /** pkexec's own fixed locations - also resolved without PATH, same reason as INSTALL_HELPER. */
++        private const string[] PKEXEC_PATHS = { "/usr/bin/pkexec", "/bin/pkexec" };
++
++        /** True when `path` names an existing, executable regular file. */
++        private static bool is_executable_file(string path) {
++            return FileUtils.test(path, FileTest.IS_REGULAR)
++                && FileUtils.test(path, FileTest.IS_EXECUTABLE);
++        }
++
++        private static string? find_pkexec() {
++            foreach (unowned string candidate in PKEXEC_PATHS) {
++                if (is_executable_file(candidate)) return candidate;
++            }
++            return null;
++        }
++
++        /** True only when the distro provides the complete backend contract. */
++        public bool is_available() {
++            return is_executable_file(INVENTORY_HELPER)
++                && is_executable_file(INSTALL_HELPER)
++                && FileUtils.test(INSTALL_POLICY, FileTest.IS_REGULAR)
++                && find_pkexec() != null;
++        }
++
++        /**
++         * Queries the configured apt source(s) for available Artist Packs.
++         *
++         * Returns an empty list (not an error) when the backend is absent,
++         * so a caller that already checked is_available() doesn't need a
++         * second error path. A real backend failure (non-zero exit, bad
++         * JSON) still throws.
++         */
++        public async Gee.ArrayList<ArtistPackInfo> fetch_inventory_async(Cancellable? cancellable = null) throws Error {
++            var results = new Gee.ArrayList<ArtistPackInfo>();
++            if (!is_executable_file(INVENTORY_HELPER)) return results;
++
++            var proc = new Subprocess(SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_PIPE,
++                                       INVENTORY_HELPER);
++            string stdout_data;
++            string stderr_data;
++            yield proc.communicate_utf8_async(null, cancellable, out stdout_data, out stderr_data);
++            if (!proc.get_successful()) {
++                throw new ArtistPackError.BACKEND_FAILED(
++                    "%s exited with an error: %s".printf(INVENTORY_HELPER, (stderr_data ?? "").strip()));
++            }
++            if (stdout_data == null || stdout_data.strip().length == 0) return results;
++
++            var parser = new Json.Parser();
++            try {
++                parser.load_from_data(stdout_data);
++            } catch (Error e) {
++                throw new ArtistPackError.INVALID_RESPONSE(
++                    "%s produced invalid JSON: %s".printf(INVENTORY_HELPER, e.message));
++            }
++            var root_node = parser.get_root();
++            if (root_node == null || root_node.get_node_type() != Json.NodeType.ARRAY) {
++                throw new ArtistPackError.INVALID_RESPONSE("%s did not return a JSON array".printf(INVENTORY_HELPER));
++            }
++
++            var array = root_node.get_array();
++            for (uint i = 0; i < array.get_length(); i++) {
++                var obj = array.get_object_element(i);
++                if (obj == null || !obj.has_member("package")) continue;
++                results.add(new ArtistPackInfo(
++                    obj.get_string_member("package"),
++                    obj.has_member("title") ? obj.get_string_member("title") : obj.get_string_member("package"),
++                    obj.has_member("summary") ? obj.get_string_member("summary") : "",
++                    obj.has_member("version") ? obj.get_string_member("version") : "",
++                    obj.has_member("source") ? obj.get_string_member("source") : "",
++                    obj.has_member("installed") && obj.get_boolean_member("installed")
++                ));
++            }
++            return results;
++        }
++
++        /**
++         * Installs one Artist Pack via pkexec + the distro's install helper.
++         *
++         * `source` must be the exact value fetch_inventory_async() reported
++         * for this package - it's passed through as argv and independently
++         * re-validated by the privileged helper, which does not trust it.
++         * The package-name check here is defense in depth only; the helper
++         * re-validates both name and source before touching apt regardless.
++         */
++        public async void install_async(string package, string source, Cancellable? cancellable = null) throws Error {
++            if (!Regex.match_simple("^ncz-wallpapers-[a-z0-9][a-z0-9-]*$", package)) {
++                throw new ArtistPackError.INVALID_RESPONSE(
++                    "Refusing to install %s: not an Artist Pack package name".printf(package));
++            }
++            if (source.strip().length == 0) {
++                throw new ArtistPackError.INVALID_RESPONSE(
++                    "Refusing to install %s: no source URI given".printf(package));
++            }
++            if (!is_executable_file(INSTALL_HELPER)) {
++                throw new ArtistPackError.BACKEND_MISSING("%s is not installed".printf(INSTALL_HELPER));
++            }
++            string? pkexec = find_pkexec();
++            if (pkexec == null) {
++                throw new ArtistPackError.BACKEND_MISSING("pkexec is not available");
++            }
++
++            var proc = new Subprocess(SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_PIPE,
++                                       pkexec, INSTALL_HELPER, package, source);
++            string stdout_data;
++            string stderr_data;
++            yield proc.communicate_utf8_async(null, cancellable, out stdout_data, out stderr_data);
++            if (!proc.get_successful()) {
++                throw new ArtistPackError.BACKEND_FAILED(
++                    "install of %s failed: %s".printf(package, (stderr_data ?? "").strip()));
++            }
++        }
++    }
++}

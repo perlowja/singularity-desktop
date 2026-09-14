@@ -10,6 +10,7 @@ install_data(
 install_data(
   'systemd/singularity-polkit-agent.service',
   'systemd/xdg-desktop-portal-singularity.service',
+  'systemd/singularity-session.target',
   install_dir: get_option('prefix') / 'lib' / 'systemd' / 'user'
 )
 install_data(

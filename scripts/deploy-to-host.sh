@@ -79,6 +79,7 @@ echo "Deploying Singularity to $PREFIX ..."
 echo "Installing binaries..."
 for bin in singularity-desktop \
            singularity-region-picker singularity-screenshot \
+           singularity-hand-control singularity-gesture-lab \
            singularity-polkit-agent singularity-greeter singularity-splash \
            xdg-desktop-portal-singularity singularity-screencast-chooser; do
     bin_path=$(find "$BUILD" -name "$bin" -executable -type f | head -n 1)
@@ -145,6 +146,25 @@ if [ -f "$BUILD/subprojects/libsingularity/libsingularity-system.so.0.1.0" ]; th
     echo "  libsingularity-system.so.0.1.0"
 fi
 
+GESTURE_LIB="$BUILD/subprojects/singularity-gestures/libsingularity-gesture.so.0.1.0"
+if [ -f "$GESTURE_LIB" ]; then
+    acopy "$GESTURE_LIB" "$OPT_LIB/libsingularity-gesture.so.0.1.0"
+    ln -sf libsingularity-gesture.so.0.1.0 "$OPT_LIB/libsingularity-gesture.so.0"
+    ln -sf libsingularity-gesture.so.0.1.0 "$OPT_LIB/libsingularity-gesture.so"
+    echo "  libsingularity-gesture.so.0.1.0"
+fi
+
+GESTURE_RUNTIME="$PROJECT_DIR/subprojects/singularity-gestures/runtime"
+if [ -d "$GESTURE_RUNTIME" ]; then
+    mkdir -p "$OPT_SING/gestures/runtime"
+    for asset in libmediapipe.so hand_landmarker.task face_landmarker.task \
+                 libonnxruntime.so mobileone_s0_gaze.onnx; do
+        [ -f "$GESTURE_RUNTIME/$asset" ] && \
+            acopy "$GESTURE_RUNTIME/$asset" "$OPT_SING/gestures/runtime/$asset"
+    done
+    echo "  gesture runtime"
+fi
+
 if [ -d "$BUILD/extra-libs" ]; then
     for lib in "$BUILD/extra-libs/"*.so*; do
         [ -f "$lib" ] && acopy "$lib" "$OPT_LIB/$(basename "$lib")"
@@ -197,6 +217,43 @@ for css in style.css style.dark.css style.light.css; do
     [ -f "$PROJECT_DIR/subprojects/libsingularity/src/style/$css" ] && \
         cp "$PROJECT_DIR/subprojects/libsingularity/src/style/$css" "$OPT_SING/"
 done
+
+if [ -d "$PROJECT_DIR/subprojects/libsingularity/data/avatars" ]; then
+    mkdir -p "$OPT_SING/avatars"
+    cp -r "$PROJECT_DIR/subprojects/libsingularity/data/avatars/." "$OPT_SING/avatars/"
+    echo "  avatars"
+fi
+
+INTER_VER="4.1"
+INTER_DST="$REAL_HOME/.local/share/fonts/inter"
+if [ ! -f "$INTER_DST/Inter-Regular.ttf" ]; then
+    echo "Installing Inter font..."
+    INTER_TMP="$(mktemp -d)"
+    if curl -sL --max-time 120 -o "$INTER_TMP/inter.zip" \
+        "https://github.com/rsms/inter/releases/download/v${INTER_VER}/Inter-${INTER_VER}.zip" \
+        && unzip -q -o "$INTER_TMP/inter.zip" "extras/ttf/Inter-*.ttf" "LICENSE.txt" -d "$INTER_TMP"; then
+        mkdir -p "$INTER_DST"
+        cp "$INTER_TMP"/extras/ttf/Inter-*.ttf "$INTER_DST/"
+        cp "$INTER_TMP/LICENSE.txt" "$INTER_DST/LICENSE.txt"
+        mkdir -p "$REAL_HOME/.config/fontconfig/conf.d"
+        cat > "$REAL_HOME/.config/fontconfig/conf.d/60-inter.conf" <<'FCEOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <alias>
+    <family>sans-serif</family>
+    <prefer><family>Inter</family></prefer>
+  </alias>
+</fontconfig>
+FCEOF
+        chown -R "$REAL_USER:" "$REAL_HOME/.local/share/fonts" "$REAL_HOME/.config/fontconfig" 2>/dev/null || true
+        run_as_user fc-cache -f >/dev/null 2>&1 || true
+        echo "  Inter ${INTER_VER}"
+    else
+        echo "  WARNING: could not fetch Inter font (offline?); skipping"
+    fi
+    rm -rf "$INTER_TMP"
+fi
 
 echo "Installing GIR / typelibs..."
 GIR_SRC="$(find "$BUILD" -maxdepth 4 \( -name 'Singularity-1.0.gir' -o -name 'LibSingularity-1.0.gir' \) | head -n 1)"
@@ -259,6 +316,11 @@ if [ -f "$SING_GTK_BUILD/3.0/gtk.css" ]; then
     done
     cp "$SING_GTK_SRC/index.theme" "$SING_GTK_THEME/index.theme"
     echo "  Singularity GTK theme"
+
+    if command -v flatpak >/dev/null; then
+        echo "Installing Flatpak GTK theme..."
+        run_as_user "$PROJECT_DIR/scripts/install-flatpak-theme.sh" "$SING_GTK_THEME"
+    fi
 fi
 
 echo "Installing wallpapers..."
@@ -308,6 +370,12 @@ cat > "$SYS_DBUS/io.github.mirkobrombin.ush.Portal.service" <<EOF
 Name=io.github.mirkobrombin.ush.Portal
 Exec=$OPT_BIN/singularity-portal
 SystemdService=xdg-desktop-portal-singularity.service
+EOF
+
+cat > "$OPT_DBUS/org.freedesktop.secrets.service" <<EOF
+[D-BUS Service]
+Name=org.freedesktop.secrets
+Exec=$OPT_BIN/singularity-keyring
 EOF
 
 cat > "$OPT_BIN/singularity-portal" <<'SPORTAL'
@@ -376,6 +444,14 @@ run_as_user mkdir -p "$REAL_HOME/.config/labwc"
 install -o "$REAL_USER" -g "$REAL_USER" -m 0644 \
     "$SESSION_SRC/config/labwc/themerc" "$REAL_HOME/.config/labwc/themerc"
 
+if command -v python3 >/dev/null 2>&1; then
+    run_as_user python3 "$SESSION_SRC/scripts/migrate-labwc-rc.py" \
+        "$SESSION_SRC/config/labwc/rc.xml" \
+        "$REAL_HOME/.config/labwc/rc.xml" \
+        --state "$REAL_HOME/.local/state/singularity/labwc-keybinds" \
+        2>&1 | sed 's/^/  /'
+fi
+
 PORTALS_CONF_DIR="$REAL_HOME/.config/xdg-desktop-portal"
 run_as_user mkdir -p "$PORTALS_CONF_DIR"
 cat > "$PORTALS_CONF_DIR/singularity-portals.conf" <<EOF
@@ -395,26 +471,18 @@ mkdir -p "$ETC_USER_DIR"
 
 run_as_user systemctl --user stop singularity-polkit-agent.service 2>/dev/null || true
 run_as_user systemctl --user disable singularity-polkit-agent.service 2>/dev/null || true
+run_as_user systemctl --user stop singularity-keyring.service 2>/dev/null || true
+run_as_user systemctl --user disable singularity-keyring.service 2>/dev/null || true
+systemctl --global disable singularity-keyring.service 2>/dev/null || true
 rm -f "$REAL_HOME/.config/systemd/user/singularity-polkit-agent.service"
 rm -f "$REAL_HOME/.config/systemd/user/singularity-keyring.service" \
       "$REAL_HOME/.config/systemd/user/xdg-desktop-portal-singularity.service"
+rm -f "$ETC_USER_DIR/singularity-keyring.service"
 
-cat > "$ETC_USER_DIR/singularity-keyring.service" <<EOF
-[Unit]
-Description=Singularity Keyring (Secret Service)
-Documentation=https://specifications.freedesktop.org/secret-service/
-PartOf=graphical-session.target
-
-[Service]
-Type=dbus
-BusName=org.freedesktop.secrets
-ExecStart=$OPT_BIN/singularity-keyring
-Restart=on-failure
-RestartSec=2
-
-[Install]
-WantedBy=graphical-session.target
-EOF
+USER_DBUS_DIR="$REAL_HOME/.local/share/dbus-1/services"
+run_as_user mkdir -p "$USER_DBUS_DIR"
+run_as_user cp "$OPT_DBUS/org.freedesktop.secrets.service" \
+    "$USER_DBUS_DIR/org.freedesktop.secrets.service"
 
 cat > "$ETC_USER_DIR/xdg-desktop-portal-singularity.service" <<EOF
 [Unit]
@@ -448,7 +516,7 @@ Wants=graphical-session-pre.target
 After=graphical-session-pre.target
 EOF
 
-systemctl --global enable singularity-keyring.service xdg-desktop-portal-singularity.service 2>/dev/null || true
+systemctl --global enable xdg-desktop-portal-singularity.service 2>/dev/null || true
 systemctl daemon-reload 2>/dev/null || true
 run_as_user systemctl --user daemon-reload 2>/dev/null || true
 run_as_user systemctl --user restart xdg-desktop-portal.service 2>/dev/null || true

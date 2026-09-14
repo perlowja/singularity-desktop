@@ -116,18 +116,64 @@
       <default>''</default>
       <summary>URI of the background picture</summary>
     </key>
+    <key name="background-attribution-title" type="s">
+      <default>''</default>
+      <summary>Attribution title for the current background</summary>
+      <description>Display name/caption for the current wallpaper, sourced from an online provider (e.g. Openverse, Unsplash). Empty for locally-supplied or unattributed backgrounds.</description>
+    </key>
+    <key name="background-attribution-author" type="s">
+      <default>''</default>
+      <summary>Attribution author for the current background</summary>
+      <description>Creator name/credit for the current wallpaper, sourced from an online provider. Empty for locally-supplied or unattributed backgrounds.</description>
+    </key>
     <key name="recent-wallpapers" type="as">
       <default>[]</default>
       <summary>List of recently used wallpaper URIs</summary>
+    </key>
+    <key name="artist-pack-apt-sources" type="as">
+      <default>[]</default>
+      <summary>Artist Pack apt sources</summary>
+      <description>List of apt repository base URIs treated as sources of
+        curated Artist Packs (ncz-wallpapers-* debs) by the Desktop settings'
+        Artist Pack browser. Only packages whose apt candidate URI is under
+        one of these bases are listed for browsing/installing. Empty means no
+        source is trusted, so the browser shows nothing rather than silently
+        trusting an unconfigured repository. Distributions set this via a
+        packaged gschema override (see dev.sinty.desktop.gschema.override in
+        the distro's post-install), not by patching this default -- the whole
+        point is that the trusted source list is deployment configuration,
+        not something baked into the browser's code.</description>
     </key>
     <key name="custom-shortcuts" type="a{ss}">
       <default>{}</default>
       <summary>Map of action names to custom accelerator strings</summary>
     </key>
+    <key name="hand-control-enabled" type="b">
+      <default>false</default>
+      <summary>Hand Control</summary>
+      <description>Control the desktop using camera-tracked hand gestures.</description>
+    </key>
     <key name="theme-mode" type="s">
       <default>'dual'</default>
       <summary>Theme Mode</summary>
       <description>Appearance mode: 'dual' (dark shell, light apps), 'light' (light shell and apps), or 'dark' (dark shell and apps).</description>
+    </key>
+    <key name="background-effect" type="s">
+      <default>'disabled'</default>
+      <summary>Background Effect</summary>
+      <description>Material applied behind translucent desktop surfaces: disabled, glass, or blur.</description>
+    </key>
+    <key name="window-transparency" type="i">
+      <range min="0" max="90"/>
+      <default>12</default>
+      <summary>Window Transparency</summary>
+      <description>Percentage of app window background transparency while a background effect is active.</description>
+    </key>
+    <key name="blur-strength" type="i">
+      <range min="0" max="100"/>
+      <default>60</default>
+      <summary>Blur Strength</summary>
+      <description>Strength of the compositor blur used by background materials.</description>
     </key>
     <key name="dark-mode" type="b">
       <default>true</default>
@@ -148,6 +194,32 @@
       <default>'07:00'</default>
       <summary>Adaptive Night End</summary>
       <description>Time of day (HH:MM) at which the adaptive theme returns to the chosen day mode.</description>
+    </key>
+    <key name="night-light-enabled" type="b">
+      <default>false</default>
+      <summary>Night Light</summary>
+      <description>Whether the warm night-light color temperature is applied.</description>
+    </key>
+    <key name="night-light-temperature" type="i">
+      <default>4000</default>
+      <range min="1000" max="6500"/>
+      <summary>Night Light Temperature</summary>
+      <description>Color temperature in Kelvin applied while night light is active.</description>
+    </key>
+    <key name="night-light-adaptive" type="b">
+      <default>false</default>
+      <summary>Adaptive Night Light</summary>
+      <description>When enabled, night light follows a daily schedule instead of a manual switch.</description>
+    </key>
+    <key name="night-light-adaptive-from" type="s">
+      <default>'19:00'</default>
+      <summary>Night Light Start</summary>
+      <description>Time of day (HH:MM) at which adaptive night light turns on.</description>
+    </key>
+    <key name="night-light-adaptive-to" type="s">
+      <default>'07:00'</default>
+      <summary>Night Light End</summary>
+      <description>Time of day (HH:MM) at which adaptive night light turns off.</description>
     </key>
     <key name="developer-mode" type="b">
       <default>false</default>
@@ -211,6 +283,12 @@
       <description>Whether to show icons from the configured desktop folder.</description>
     </key>
 
+    <key name="show-wallpaper-attribution" type="b">
+      <default>true</default>
+      <summary>Show Wallpaper Info</summary>
+      <description>Display the wallpaper's title and photographer credit as an overlay on the desktop background.</description>
+    </key>
+
     <key name="show-battery-percentage" type="b">
       <default>false</default>
       <summary>Show Battery Percentage</summary>
@@ -227,6 +305,21 @@
       <default>false</default>
       <summary>Open Settings in window</summary>
       <description>When enabled, the Settings button opens a dedicated Settings window instead of using the sidebar.</description>
+    </key>
+    <key name="quick-settings-tile-order" type="as">
+      <default>['wifi', 'bluetooth', 'theme', 'night-light', 'airplane-mode', 'keyboard-light', 'audio', 'power-profile', 'do-not-disturb', 'vpn', 'tiling', 'hotspot', 'game-mode']</default>
+      <summary>Quick settings tile order</summary>
+      <description>Order of tiles in the quick settings editor.</description>
+    </key>
+    <key name="quick-settings-active-tiles" type="as">
+      <default>['wifi', 'bluetooth', 'theme', 'night-light', 'airplane-mode', 'keyboard-light', 'audio', 'power-profile', 'do-not-disturb', 'vpn', 'tiling', 'hotspot', 'game-mode']</default>
+      <summary>Visible quick settings tiles</summary>
+      <description>Tiles shown in quick settings.</description>
+    </key>
+    <key name="quick-settings-compact" type="b">
+      <default>false</default>
+      <summary>Compact quick settings tiles</summary>
+      <description>Show quick settings tiles as compact icon controls.</description>
     </key>
 
     <key name="high-contrast" type="b">

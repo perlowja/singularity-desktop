@@ -1,2 +1,4 @@
 option('installer', type: 'boolean', value: false,
   description: 'Build and install the Sinty OS installer')
+option('gestures', type: 'feature', value: 'auto',
+  description: 'Build hand and gaze gesture controls')

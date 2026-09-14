@@ -1,0 +1,105 @@
+name: Publish cpak images
+
+on:
+  push:
+    branches: [master]
+    tags: ['*']
+    paths:
+      - '.github/workflows/cpak-publish.yml'
+      - '.dockerignore'
+      - 'Containerfile'
+      - 'cpak.json'
+      - 'cpak/**'
+      - 'data/**'
+      - 'meson.build'
+      - 'meson_options.txt'
+      - 'subprojects/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+  attestations: write
+  id-token: write
+
+concurrency:
+  group: publish-cpak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: recursive
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: desktop-meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051
+        with:
+          images: ghcr.io/singularityos-lab/singularity-desktop
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-
+
+      - id: desktop
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: Containerfile
+          target: desktop
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.desktop-meta.outputs.tags }}
+          labels: ${{ steps.desktop-meta.outputs.labels }}
+          cache-from: type=gha,scope=singularity-desktop
+          cache-to: type=gha,mode=max,scope=singularity-desktop
+          provenance: mode=max
+          sbom: true
+
+      - name: Publish summary
+        run: echo "ghcr.io/singularityos-lab/singularity-desktop@${{ steps.desktop.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Pin published image
+        env:
+          IMAGE_DIGEST: ${{ steps.desktop.outputs.digest }}
+        run: |
+          repository="$(jq -r '.image | split("@")[0]' cpak.json)"
+          jq --arg image "${repository}@${IMAGE_DIGEST}" '.image = $image' cpak.json > cpak.json.next
+          mv cpak.json.next cpak.json
+          if ! git diff --quiet -- cpak.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add cpak.json
+            git commit -m "chore: pin published image [skip ci]"
+            git push origin "HEAD:${{ github.event.repository.default_branch }}"
+          fi
+
+      - uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62
+
+      - name: Install cpak-sign
+        run: |
+          curl -fsSLO https://github.com/Containerpak/cpak/releases/download/v2.10.16/cpak-sign-linux-amd64
+          echo 'ef28930705bdbdd04de4ef3724bd2b65f873cec5709964ce657a9b7f7e0a9a4d  cpak-sign-linux-amd64' | sha256sum -c -
+          install -Dm755 cpak-sign-linux-amd64 /usr/local/bin/cpak-sign
+
+      - name: Sign the package state
+        env:
+          CPAK_REGISTRY_USERNAME: ${{ github.actor }}
+          CPAK_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cpak-sign state \
+            --origin github.com/singularityos-lab/singularity-desktop \
+            --generation "${{ github.run_number }}"
+          cosign sign-blob --yes --new-bundle-format=true \
+            --bundle cpak-state.sigstore.json cpak-state
+          cpak-sign attach --image ghcr.io/singularityos-lab/singularity-desktop

@@ -12,8 +12,9 @@ sharing the [libsingularity](subprojects/libsingularity) toolkit.
 - GTK4 >= 4.6 and gtk4-layer-shell
 - libdecor (runtime, client-side window decorations for GTK and Qt apps)
 - Qt 6 xdgdesktopportal platform theme plugin (runtime, so Qt apps follow the
-  dark/light and accent settings via the XDG settings portal). It ships with Qt
-  6 qtbase: Fedora `qt6-qtbase-gui`, Arch `qt6-base`, Debian/Ubuntu `qt6-base`
+  dark/light and accent settings via the XDG settings portal). Fedora:
+  `qt6-qtbase-gui`; Arch: `qt6-base`; Debian/Ubuntu:
+  `qt6-xdgdesktopportal-platformtheme`
 - `appmenu-gtk-module` (runtime, optional) so third-party GTK apps publish their
   menu bar to the panel global menu. Debian/Ubuntu `appmenu-gtk3-module` (plus
   `appmenu-gtk2-module` for GTK 2), Arch `appmenu-gtk-module` (AUR); on Fedora it
@@ -56,8 +57,41 @@ mode, accent color, dock and workspace layout, developer mode, and more).
 - Shell: `src/` (core managers, panel, dock, overview, sidebar/settings).
 - Toolkit: `subprojects/libsingularity` (ships `libsingularity`, the GTK4 UI toolkit, and `libsingularity-system`, the headless system backends; see its README).
 - Compositor: `subprojects/labwc`.
+- Gesture control: `subprojects/singularity-gestures` (hand and gaze tracking,
+  calibration lab, and desktop controller).
 - Portals: `subprojects/xdg-desktop-portal-singularity`.
 - Applications: the other `subprojects/singularity-*` repositories.
+
+## Use of Generative AI
+Some maintainers might use generative AI tools as assistants while working in Singularity Desktop, in the spirit of Open Source, I want to be transparent about how, specifically:
+
+- Code comments and documentation
+- Boilerplate and repetitive code
+- Issue triage (spotting duplicates, outdated reports, grouping similar issues)
+
+Tools vary between contributors (currently mostly Claude and Codex): each AI-assisted commit states the tool and model used in its `Assisted-by` trailer.
+
+### What we don't use it for
+Architecture, complex logic, the security and sandboxing model and user experience are designed and written by the maintainers, manually.
+
+### Human review
+Every line of generated code, documentation and comments are reviewed by a maintainer before it is merged.
+
+Also, starting from the 10th Sep 2026, the following commit pattern must be used for contributions made with or helped with the AI:
+
+```plain
+feat: add support for X
+
+Assisted-by: <tool>:<model-version>
+AI-Scope: what the AI generated in this commit, and the prompt used (or a short summary of it)
+```
+
+Trivial completions (single lines, renames, formatting) don't need to be marked.
+
+Not following this layout will lead to a closed Pull Request.
+
+Coding agents must also follow [AGENTS.md](AGENTS.md) before changing files,
+creating commits, or opening pull requests.
 
 ## License
 

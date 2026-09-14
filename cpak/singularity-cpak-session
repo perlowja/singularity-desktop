@@ -1,0 +1,33 @@
+#!/bin/sh
+
+display="${DISPLAY:-:0}"
+display="${display##*:}"
+display="${display%%.*}"
+case "$display" in
+    ""|*[!0-9]*) display=0 ;;
+esac
+
+mkdir -p /tmp/.X11-unix
+lock="/tmp/.X${display}-lock"
+owner=""
+if [ -r "$lock" ]; then
+    read -r owner < "$lock"
+fi
+if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
+    rm -f "$lock"
+    printf '%10d\n' "$$" > "$lock"
+    chmod 0444 "$lock"
+fi
+
+if [ -n "${CPAK_DESKTOP_RUNTIME:-}" ]; then
+    outer_wayland="${WAYLAND_DISPLAY:-wayland-0}"
+    case "$outer_wayland" in
+        /*) ;;
+        *) outer_wayland="${XDG_RUNTIME_DIR}/${outer_wayland}" ;;
+    esac
+    export XDG_RUNTIME_DIR="$CPAK_DESKTOP_RUNTIME"
+    export WAYLAND_DISPLAY="$outer_wayland"
+    unset DBUS_SESSION_BUS_ADDRESS
+fi
+
+exec /opt/singularity/bin/singularity-labwc-session "$@"

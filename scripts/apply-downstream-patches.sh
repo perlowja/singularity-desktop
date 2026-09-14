@@ -13,6 +13,21 @@
 # that no longer applies FAILS THE BUILD on purpose. Silently skipping one is
 # how the payload went stale in the first place.
 #
+# patches/_root/*.patch is a reserved name applying directly to the
+# superproject itself (this repo's own root, e.g. data/*.gschema.xml,
+# data/systemd/*.service) rather than to a subprojects/<name> submodule.
+# Added 2026-09-14: our downstream schema keys (background-attribution-*,
+# show-wallpaper-attribution, sensors-*, night-light-*, the redefined
+# tiling-gap/window-border-width) and the portal unit's XDG_DATA_DIRS fix
+# were committed directly to this fork's master instead of as a patch, so
+# ncz-singularity-sync.sh's CI-overlay step -- which builds a fresh tree
+# from upstream + only .buildkite/scripts/patches off master -- silently
+# dropped every one of them from every validated/staged build. None of
+# these are cosmetic: several are startup-abort fixes (GSettings treats an
+# undefined key as g_error(), not a fallback -- see the schema file's own
+# comment). _root exists so this class of fix rides the same idempotent,
+# fail-the-build-on-drift guarantee subproject patches already have.
+#
 # Idempotent: an already-applied patch is detected and skipped, so running this
 # twice (CI retry, local rebuild) is safe.
 set -euo pipefail
@@ -24,10 +39,15 @@ shopt -s nullglob
 total=0
 
 for dir in patches/*/; do
-    sub="subprojects/$(basename "$dir")"
-    if [ ! -d "$sub" ]; then
-        echo "FATAL: $dir has patches but $sub does not exist" >&2
-        exit 1
+    name_dir="$(basename "$dir")"
+    if [ "$name_dir" = "_root" ]; then
+        sub="$ROOT"
+    else
+        sub="subprojects/$name_dir"
+        if [ ! -d "$sub" ]; then
+            echo "FATAL: $dir has patches but $sub does not exist" >&2
+            exit 1
+        fi
     fi
 
     for p in "$dir"*.patch; do

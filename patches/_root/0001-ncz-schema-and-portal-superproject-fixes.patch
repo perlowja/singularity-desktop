@@ -1,0 +1,198 @@
+diff --git a/data/dev.sinty.desktop.gschema.xml b/data/dev.sinty.desktop.gschema.xml
+index c44f0d4..752aec1 100644
+--- a/data/dev.sinty.desktop.gschema.xml
++++ b/data/dev.sinty.desktop.gschema.xml
+@@ -116,6 +116,16 @@
+       <default>''</default>
+       <summary>URI of the background picture</summary>
+     </key>
++    <key name="background-attribution-title" type="s">
++      <default>''</default>
++      <summary>Attribution title for the current background</summary>
++      <description>Display name/caption for the current wallpaper, sourced from an online provider (e.g. Openverse, Unsplash). Empty for locally-supplied or unattributed backgrounds.</description>
++    </key>
++    <key name="background-attribution-author" type="s">
++      <default>''</default>
++      <summary>Attribution author for the current background</summary>
++      <description>Creator name/credit for the current wallpaper, sourced from an online provider. Empty for locally-supplied or unattributed backgrounds.</description>
++    </key>
+     <key name="recent-wallpapers" type="as">
+       <default>[]</default>
+       <summary>List of recently used wallpaper URIs</summary>
+@@ -273,6 +283,12 @@
+       <description>Whether to show icons from the configured desktop folder.</description>
+     </key>
+ 
++    <key name="show-wallpaper-attribution" type="b">
++      <default>true</default>
++      <summary>Show Wallpaper Info</summary>
++      <description>Display the wallpaper's title and photographer credit as an overlay on the desktop background.</description>
++    </key>
++
+     <key name="show-battery-percentage" type="b">
+       <default>false</default>
+       <summary>Show Battery Percentage</summary>
+@@ -347,18 +363,6 @@
+       <summary>Scrolling Tiling Column Width</summary>
+       <description>Width of each scrolling tiling column as a percentage of the work area.</description>
+     </key>
+-    <key name="tiling-gap" type="i">
+-      <range min="0" max="64"/>
+-      <default>12</default>
+-      <summary>Tiling Gap</summary>
+-      <description>Space between tiled windows.</description>
+-    </key>
+-    <key name="window-border-width" type="i">
+-      <range min="0" max="8"/>
+-      <default>3</default>
+-      <summary>Window Border Width</summary>
+-      <description>Width of the accent-colored window border.</description>
+-    </key>
+     <key name="preview-features-enabled" type="b">
+       <default>false</default>
+       <summary>Enable Preview Features</summary>
+@@ -535,5 +539,125 @@
+       <summary>Graphics rendering mode</summary>
+       <description>auto, hardware or software. Software is a safe fallback for GPUs whose driver crashes the hardware renderer.</description>
+     </key>
++    <key name="sensors-gpu-zone" type="s">
++      <default>"TZGT"</default>
++      <summary>Sensor treated as GPU</summary>
++      <description>Overrides GPU detection for hardware the driver-name heuristic misses. Matched against the hwmon chip name or thermal zone type. Upstream this should default to empty; NCZ-OS defaults it to TZGT because the CIX Sky1 graphics thermal zone carries no name a generic heuristic can recognise.</description>
++    </key>
++    <key name="sensors-show-frequency" type="b">
++      <default>true</default>
++      <summary>Show CPU clock beside the temperature</summary>
++      <description>Show the highest current CPU clock next to the temperature in the Sensors panel item.</description>
++    </key>
++    <key name="sensors-interval-seconds" type="i">
++      <default>2</default>
++      <summary>Sensor refresh interval</summary>
++      <description>Seconds between sensor reads. Polling is skipped entirely while the widget is not mapped, and the detail list is rebuilt only while its popover is open.</description>
++    </key>
++    <key name="sensors-cpu-zone" type="s">
++      <default>"TZ"</default>
++      <summary>Sensor treated as CPU</summary>
++      <description>Substring identifying the CPU sensor on hardware the driver allow-list cannot recognise, matched against the hwmon chip name or thermal zone type. Upstream this defaults to empty; NCZ-OS sets "TZ" so the CIX Sky1 cluster zones (TZB0/TZB1/TZM0/TZM1) are read as CPU. The GPU hint is checked first, so TZGT is still classified as the GPU.</description>
++    </key>
++  
++    <!-- Keys added downstream 2026-08-14. The shell at upstream pin 995dd1e
++         reads these, but no schema in either repo defines them: upstream
++         singularity-shell ships only dev.sinty.lockscreen, so this file is the
++         sole definition site for dev.sinty.desktop. Tracking upstream tip
++         without adding them made singularity-desktop abort on startup:
++           GLib-GIO-ERROR: Settings schema 'dev.sinty.desktop' does not
++           contain a key named 'window-border-width'
++         GSettings treats a missing key as a programmer error and calls
++         g_error(), which aborts -- so every one of these is a hard crash the
++         moment its code path runs, not a fallback. Ranges below are taken from
++         the call sites, not invented. -->
++    <key name="window-border-width" type="i">
++      <default>1</default>
++      <range min="0" max="8"/>
++      <summary>Window border width</summary>
++      <description>
++        Accent-colored border thickness in pixels. The settings UI exposes it as
++        a 0-8 spin control (desktop_page.vala) and the compositor clamps to the
++        same range (main.vala), so the range mirrors both.
++      </description>
++    </key>
++    <key name="tiling-gap" type="i">
++      <default>8</default>
++      <range min="0" max="64"/>
++      <summary>Window gap</summary>
++      <description>
++        Space in pixels between windows in scrolling tiling. UI spin range and
++        the tiling_manager clamp are both 0-64. Read only when the sidebar or
++        the tiling manager runs, so it was a second abort queued behind
++        window-border-width rather than a startup crash.
++      </description>
++    </key>
++    <key name="quick-settings-compact" type="b">
++      <default>false</default>
++      <summary>Compact quick settings</summary>
++      <description>Show quick settings as icon controls rather than full rows.</description>
++    </key>
++    <key name="quick-settings-active-tiles" type="as">
++      <default>['wifi','bluetooth','audio','theme','night-light','do-not-disturb']</default>
++      <summary>Active quick settings tiles</summary>
++      <description>
++        Tile ids shown in the quick settings panel. Registered ids are wifi,
++        bluetooth, theme, night-light, airplane-mode, keyboard-light, audio,
++        power-profile, do-not-disturb, vpn, tiling, hotspot and game-mode.
++        Defaulted to the common subset rather than an empty list, because
++        tile_is_active() returns false for everything when the list is empty and
++        the panel would render with no tiles at all.
++      </description>
++    </key>
++    <key name="quick-settings-tile-order" type="as">
++      <default>[]</default>
++      <summary>Quick settings tile order</summary>
++      <description>
++        Explicit ordering of tile ids. Empty is safe here, unlike the active
++        list: tile_order() appends any unlisted registered tiles after the
++        ordered ones, so an empty value yields registration order.
++      </description>
++    </key>
++    <key name="night-light-enabled" type="b">
++      <default>false</default>
++      <summary>Night Light enabled</summary>
++      <description>
++        Master switch for Night Light. Added along with the other
++        night-light-* keys below when NightLightManager was reworked from a
++        hard-coded 4000 K on/off toggle into a settings-driven state machine
++        -- these keys did not exist before that rework and their absence
++        aborts (SIGABRT, GSettings unknown-key) the moment
++        SystemMonitor.get_night_light() is called, which happens on first
++        sidebar construction. Same failure class as the window-border-width
++        / tiling-spacing note above.
++      </description>
++    </key>
++    <key name="night-light-adaptive" type="b">
++      <default>false</default>
++      <summary>Night Light adaptive scheduling</summary>
++      <description>
++        When true, Night Light activates automatically between
++        night-light-adaptive-from and night-light-adaptive-to instead of
++        following night-light-enabled directly.
++      </description>
++    </key>
++    <key name="night-light-temperature" type="i">
++      <default>4000</default>
++      <summary>Night Light color temperature (Kelvin)</summary>
++      <description>
++        Clamped to 1000-6500 K by NightLightManager. 4000 matches the value
++        the old hard-coded toggle used.
++      </description>
++    </key>
++    <key name="night-light-adaptive-from" type="s">
++      <default>"19:00"</default>
++      <summary>Night Light adaptive schedule start (HH:MM)</summary>
++      <description>Only read when night-light-adaptive is true.</description>
++    </key>
++    <key name="night-light-adaptive-to" type="s">
++      <default>"07:00"</default>
++      <summary>Night Light adaptive schedule end (HH:MM)</summary>
++      <description>Only read when night-light-adaptive is true.</description>
++    </key>
+   </schema>
+ </schemalist>
+diff --git a/data/systemd/xdg-desktop-portal-singularity.service b/data/systemd/xdg-desktop-portal-singularity.service
+index 8b0521d..856c5a1 100644
+--- a/data/systemd/xdg-desktop-portal-singularity.service
++++ b/data/systemd/xdg-desktop-portal-singularity.service
+@@ -6,6 +6,14 @@ After=graphical-session.target
+ [Service]
+ Type=dbus
+ BusName=org.freedesktop.impl.portal.desktop.singularity
++# GSettings only searches XDG_DATA_DIRS (plus /usr/share) for schemas by
++# default. None of this unit's own install prefixes are on that path unless
++# something else adds them, so every gsettings call -- including the ones the
++# Settings portal makes on construction -- fails "No such schema" and aborts
++# (g_settings_new is a fatal error, not a catchable one). Listing every
++# prefix this ExecStart already searches for the binary keeps the two lists
++# in sync regardless of which one actually wins.
++Environment=XDG_DATA_DIRS=/opt/singularity/share:/opt/local/share:/opt/share:%h/.local/singularity/share:/usr/local/share:/usr/share
+ ExecStart=/bin/sh -c 'for d in /opt/local/bin /opt/bin /usr/local/bin %h/.local/singularity/bin /usr/bin; do if [ -x "$d/xdg-desktop-portal-singularity" ]; then exec "$d/xdg-desktop-portal-singularity"; fi; done; exit 1'
+ Restart=on-failure
+ RestartSec=2

@@ -77,8 +77,19 @@ steps:
       ninja -C build
 
       if [ -d subprojects/labwc ]; then
+        # --libdir=lib matches the top-level build (above) explicitly. Without
+        # it, meson falls back to its own Debian-multiarch auto-default for
+        # this SEPARATE configure invocation, so wlroots -> libdisplay-info
+        # (pulled in transitively via --force-fallback-for) installs to
+        # lib/aarch64-linux-gnu/ instead of flat lib/ -- invisible to both
+        # ncz-singularity-greeter/ncz-singularity's LD_LIBRARY_PATH and the
+        # shipped ld.so.conf.d entry. labwc dlopen-failed on
+        # libdisplay-info.so.5, greetd crash-looped, black screen. Confirmed
+        # live on external tester hardware 2026-09-15 (see cix-installer
+        # commit a3831a4/817fe65 for the belt-and-suspenders runtime fix that
+        # covers already-built payloads; this is the actual root-level fix).
         meson setup build-labwc subprojects/labwc --prefix=/opt/singularity \
-            --buildtype=release -Dxwayland=enabled --force-fallback-for=wlroots-0.20
+            --libdir=lib --buildtype=release -Dxwayland=enabled --force-fallback-for=wlroots-0.20
         ninja -C build-labwc
       fi
 

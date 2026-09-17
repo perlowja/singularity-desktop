@@ -6,6 +6,8 @@ After=graphical-session.target
 [Service]
 Type=dbus
 BusName=org.freedesktop.impl.portal.desktop.singularity
+# g_settings_new() aborts on an unfound schema, so mirror ExecStart's prefixes.
+Environment=XDG_DATA_DIRS=/opt/singularity/share:/opt/local/share:/opt/share:%h/.local/singularity/share:/usr/local/share:/usr/share
 ExecStart=/bin/sh -c 'for d in /opt/local/bin /opt/bin /usr/local/bin %h/.local/singularity/bin /usr/bin; do if [ -x "$d/xdg-desktop-portal-singularity" ]; then exec "$d/xdg-desktop-portal-singularity"; fi; done; exit 1'
 Restart=on-failure
 RestartSec=2

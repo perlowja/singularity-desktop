@@ -133,3 +133,114 @@
 [submodule "subprojects/singularity-media-plugins"]
 	path = subprojects/singularity-media-plugins
 	url = https://github.com/singularityos-lab/singularity-media-plugins.git
+[submodule "subprojects/singularity-disks"]
+	path = subprojects/singularity-disks
+	url = https://github.com/singularityos-lab/singularity-disks.git
+[submodule "subprojects/singularity-help"]
+	path = subprojects/singularity-help
+	url = https://github.com/singularityos-lab/singularity-help.git
+[submodule "subprojects/singularity-weather"]
+	path = subprojects/singularity-weather
+	url = https://github.com/singularityos-lab/singularity-weather.git
+[submodule "subprojects/singularity-characters"]
+	path = subprojects/singularity-characters
+	url = https://github.com/singularityos-lab/singularity-characters.git
+[submodule "subprojects/singularity-usage"]
+	path = subprojects/singularity-usage
+	url = https://github.com/singularityos-lab/singularity-usage.git
+[submodule "subprojects/singularity-fonts"]
+	path = subprojects/singularity-fonts
+	url = https://github.com/singularityos-lab/singularity-fonts.git
+[submodule "subprojects/singularity-logs"]
+	path = subprojects/singularity-logs
+	url = https://github.com/singularityos-lab/singularity-logs.git
+[submodule "subprojects/singularity-tour"]
+	path = subprojects/singularity-tour
+	url = https://github.com/singularityos-lab/singularity-tour.git
+[submodule "subprojects/singularity-contacts"]
+	path = subprojects/singularity-contacts
+	url = https://github.com/singularityos-lab/singularity-contacts.git
+[submodule "subprojects/singularity-maps"]
+	path = subprojects/singularity-maps
+	url = https://github.com/singularityos-lab/singularity-maps.git
+[submodule "subprojects/singularity-camera"]
+	path = subprojects/singularity-camera
+	url = https://github.com/singularityos-lab/singularity-camera.git
+[submodule "subprojects/singularity-connections"]
+	path = subprojects/singularity-connections
+	url = https://github.com/singularityos-lab/singularity-connections.git
+[submodule "subprojects/singularity-scanner"]
+	path = subprojects/singularity-scanner
+	url = https://github.com/singularityos-lab/singularity-scanner.git
+[submodule "subprojects/singularity-passwords"]
+	path = subprojects/singularity-passwords
+	url = https://github.com/singularityos-lab/singularity-passwords.git
+[submodule "subprojects/singularity-lettere"]
+	path = subprojects/singularity-lettere
+	url = https://github.com/singularityos-lab/singularity-lettere.git
+[submodule "subprojects/singularity-backups"]
+	path = subprojects/singularity-backups
+	url = https://github.com/singularityos-lab/singularity-backups.git
+[submodule "subprojects/singularity-printers"]
+	path = subprojects/singularity-printers
+	url = https://github.com/singularityos-lab/singularity-printers.git
+[submodule "subprojects/singularity-nearby-app"]
+	path = subprojects/singularity-nearby-app
+	url = https://github.com/singularityos-lab/singularity-nearby-app.git
+[submodule "subprojects/singularity-notes"]
+	path = subprojects/singularity-notes
+	url = https://github.com/singularityos-lab/singularity-notes.git
+[submodule "subprojects/singularity-voice"]
+	path = subprojects/singularity-voice
+	url = https://github.com/singularityos-lab/singularity-voice.git
+[submodule "subprojects/singularity-machines"]
+	path = subprojects/singularity-machines
+	url = https://github.com/singularityos-lab/singularity-machines.git
+[submodule "subprojects/singularity-spreadsheet"]
+	path = subprojects/singularity-spreadsheet
+	url = https://github.com/singularityos-lab/singularity-spreadsheet.git
+[submodule "subprojects/singularity-radio"]
+	path = subprojects/singularity-radio
+	url = https://github.com/singularityos-lab/singularity-radio.git
+[submodule "subprojects/singularity-podcasts"]
+	path = subprojects/singularity-podcasts
+	url = https://github.com/singularityos-lab/singularity-podcasts.git
+[submodule "subprojects/singularity-news"]
+	path = subprojects/singularity-news
+	url = https://github.com/singularityos-lab/singularity-news.git
+[submodule "subprojects/singularity-fediverse"]
+	path = subprojects/singularity-fediverse
+	url = https://github.com/singularityos-lab/singularity-fediverse.git
+[submodule "subprojects/singularity-colorpicker"]
+	path = subprojects/singularity-colorpicker
+	url = https://github.com/singularityos-lab/singularity-colorpicker.git
+[submodule "subprojects/singularity-drivewriter"]
+	path = subprojects/singularity-drivewriter
+	url = https://github.com/singularityos-lab/singularity-drivewriter.git
+[submodule "subprojects/singularity-tasks"]
+	path = subprojects/singularity-tasks
+	url = https://github.com/singularityos-lab/singularity-tasks.git
+[submodule "subprojects/singularity-translate"]
+	path = subprojects/singularity-translate
+	url = https://github.com/singularityos-lab/singularity-translate.git
+[submodule "subprojects/singularity-authenticator"]
+	path = subprojects/singularity-authenticator
+	url = https://github.com/singularityos-lab/singularity-authenticator.git
+[submodule "subprojects/singularity-qrcodes"]
+	path = subprojects/singularity-qrcodes
+	url = https://github.com/singularityos-lab/singularity-qrcodes.git
+[submodule "subprojects/singularity-draw"]
+	path = subprojects/singularity-draw
+	url = https://github.com/singularityos-lab/singularity-draw.git
+[submodule "subprojects/singularity-slides"]
+	path = subprojects/singularity-slides
+	url = https://github.com/singularityos-lab/singularity-slides.git
+[submodule "subprojects/singularity-database"]
+	path = subprojects/singularity-database
+	url = https://github.com/singularityos-lab/singularity-database.git
+[submodule "subprojects/singularity-formula"]
+	path = subprojects/singularity-formula
+	url = https://github.com/singularityos-lab/singularity-formula.git
+[submodule "subprojects/singularity-browser"]
+	path = subprojects/singularity-browser
+	url = https://github.com/singularityos-lab/singularity-browser.git

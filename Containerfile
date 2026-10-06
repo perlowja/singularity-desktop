@@ -30,7 +30,9 @@ RUN apt-get update && \
       libdrm-dev \
       libenchant-2-dev \
       libevdev-dev \
+      libfido2-dev \
       libfontconfig-dev \
+      libfreetype-dev \
       libfuse3-dev \
       libgcrypt20-dev \
       libgdk-pixbuf-2.0-dev \
@@ -51,6 +53,7 @@ RUN apt-get update && \
       libjson-glib-dev \
       liblcms2-dev \
       libliftoff-dev \
+      liblzma-dev \
       libmtdev-dev \
       libnm-dev \
       libpam0g-dev \
@@ -62,6 +65,7 @@ RUN apt-get update && \
       libpoppler-glib-dev \
       libpulse-dev \
       librsvg2-dev \
+      libsane-dev \
       libseat-dev \
       libsecret-1-dev \
       libsfdo-dev \
@@ -76,8 +80,8 @@ RUN apt-get update && \
       libvte-2.91-gtk4-dev \
       libwacom-dev \
       libwayland-dev \
-      libwebp-dev \
       libwebkitgtk-6.0-dev \
+      libwebp-dev \
       libxcb-composite0-dev \
       libxcb-dri3-dev \
       libxcb-ewmh-dev \
@@ -89,7 +93,11 @@ RUN apt-get update && \
       libxcb-xinput-dev \
       libxkbcommon-dev \
       libxml2-dev \
+      libzbar-dev \
+      libzstd-dev \
+      freerdp3-dev \
       meson \
+      nettle-dev \
       ninja-build \
       pkg-config \
       sassc \

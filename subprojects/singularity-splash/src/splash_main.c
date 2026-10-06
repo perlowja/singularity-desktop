@@ -35,6 +35,7 @@ struct g_output {
     struct zwlr_layer_surface_v1 *layer_surface;
     uint32_t width, height;
     bool configured;
+    struct wl_callback *frame_cb;
     struct g_output *next;
 };
 static struct g_output *outputs;
@@ -44,6 +45,7 @@ static struct xdg_surface *pv_xsurf;
 static struct xdg_toplevel *pv_top;
 static int pv_w = 900, pv_h = 560;
 static bool pv_configured = false;
+static struct wl_callback *pv_frame_cb = NULL;
 
 static bool preview = false;
 static bool running = true;
@@ -51,6 +53,7 @@ static bool running = true;
 static cairo_surface_t *logo = NULL;
 
 static double g_alpha = 1.0;
+static double g_start = 0.0;
 
 /* ── debug overlay (Ctrl+Shift+D) ─────────────────────────────────────────── */
 static bool debug_overlay = false;
@@ -129,6 +132,8 @@ static void os_release_value(const char *key, char *out, size_t n) {
 }
 
 static void load_logo(void) {
+    logo = loginui_load_brand_logo();
+    if (logo) return;
     char logo_name[128], id[128];
     os_release_value("LOGO", logo_name, sizeof logo_name);
     os_release_value("ID", id, sizeof id);
@@ -165,13 +170,24 @@ static void draw_debug_overlay(cairo_t *cr, int w, int h) {
     cairo_restore(cr);
 }
 
-static void render_surface(struct wl_surface *surface, int w, int h) {
+static void frame_done(void *data, struct wl_callback *cb, uint32_t time) {
+    (void)time;
+    struct wl_callback **slot = data;
+    wl_callback_destroy(cb);
+    *slot = NULL;
+}
+static const struct wl_callback_listener frame_listener = { .done = frame_done };
+
+static void render_surface(struct wl_surface *surface, int w, int h, struct wl_callback **frame_slot) {
+    if (*frame_slot) return;
     cairo_t *cr;
     struct loginui_buffer *b = loginui_create_buffer(shm, w, h, &cr);
     if (!b) return;
 
     cairo_push_group(cr);
-    loginui_render_splash(cr, w, h, NULL, logo, mono_seconds());
+    double now = mono_seconds();
+    double track = (now - g_start) / (LOGINUI_MOTION_SMALL_MS / 1000.0);
+    loginui_render_brand(cr, w, h, logo, track < 0.0 ? 0.0 : (track > 1.0 ? 1.0 : track), now);
     cairo_pop_group_to_source(cr);
     cairo_save(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
@@ -181,6 +197,8 @@ static void render_surface(struct wl_surface *surface, int w, int h) {
     if (debug_overlay) draw_debug_overlay(cr, w, h);
 
     cairo_destroy(cr);
+    *frame_slot = wl_surface_frame(surface);
+    wl_callback_add_listener(*frame_slot, &frame_listener, frame_slot);
     wl_surface_attach(surface, b->wl_buffer, 0, 0);
     wl_surface_damage_buffer(surface, 0, 0, w, h);
     wl_surface_commit(surface);
@@ -188,11 +206,11 @@ static void render_surface(struct wl_surface *surface, int w, int h) {
 
 static void render_all(void) {
     if (preview) {
-        if (pv_configured) render_surface(pv_surface, pv_w, pv_h);
+        if (pv_configured) render_surface(pv_surface, pv_w, pv_h, &pv_frame_cb);
         return;
     }
     for (struct g_output *o = outputs; o; o = o->next)
-        if (o->configured) render_surface(o->surface, (int)o->width, (int)o->height);
+        if (o->configured) render_surface(o->surface, (int)o->width, (int)o->height, &o->frame_cb);
 }
 
 /* ── keyboard (debug chord) ─────────────────────────────────────────────── */
@@ -258,7 +276,8 @@ static void layer_configure(void *data, struct zwlr_layer_surface_v1 *ls,
     struct g_output *o = data;
     o->width = w; o->height = h; o->configured = true;
     zwlr_layer_surface_v1_ack_configure(ls, serial);
-    render_surface(o->surface, (int)w, (int)h);
+    if (o->frame_cb) { wl_callback_destroy(o->frame_cb); o->frame_cb = NULL; }
+    render_surface(o->surface, (int)w, (int)h, &o->frame_cb);
 }
 static void layer_closed(void *data, struct zwlr_layer_surface_v1 *ls) { (void)data; (void)ls; running = false; }
 static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
@@ -286,7 +305,8 @@ static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t s
     (void)data;
     xdg_surface_ack_configure(xs, serial);
     pv_configured = true;
-    render_surface(pv_surface, pv_w, pv_h);
+    if (pv_frame_cb) { wl_callback_destroy(pv_frame_cb); pv_frame_cb = NULL; }
+    render_surface(pv_surface, pv_w, pv_h, &pv_frame_cb);
 }
 static const struct xdg_surface_listener xdg_surface_listener = { .configure = xdg_surface_configure };
 
@@ -346,6 +366,7 @@ static void reg_remove(void *data, struct wl_registry *reg, uint32_t name) {
         if ((*pp)->name == name) {
             struct g_output *dead = *pp;
             *pp = dead->next;
+            if (dead->frame_cb) wl_callback_destroy(dead->frame_cb);
             if (dead->layer_surface) zwlr_layer_surface_v1_destroy(dead->layer_surface);
             if (dead->surface) wl_surface_destroy(dead->surface);
             if (dead->wl_output) wl_output_destroy(dead->wl_output);
@@ -365,7 +386,8 @@ static bool ready_flag_present(const char *path) {
 
 int main(int argc, char **argv) {
     const double TIMEOUT_S = 30.0;
-    const double FADE_S = 0.25;
+    const double FADE_S = loginui_scene_seconds();
+    g_start = mono_seconds();
 
     for (int i = 1; i < argc; i++)
         if (strcmp(argv[i], "--preview") == 0) preview = true;

@@ -28,7 +28,7 @@ mkdir -p "$OPT_BIN" "$OPT_LIB" "$OPT_APPS" "$OPT_ICONS" "$OPT_THEMES" \
          "$OPT_PORTAL" "$OPT_DBUS" "$OPT_BACKGROUNDS"
 
 echo "Installing binaries..."
-for bin in singularity-desktop singularity-region-picker singularity-screenshot \
+for bin in singularity-desktop singularity-region-picker singularity-screenshot singularity-recorder \
            singularity-polkit-agent singularity-greeter xdg-desktop-portal-singularity; do
     bin_path=$(find "$BUILD" -name "$bin" -executable -type f | head -n 1)
     [ -n "$bin_path" ] && cp "$bin_path" "$OPT_BIN/" && strip --strip-unneeded "$OPT_BIN/$bin" && echo "  $bin"

@@ -24,3 +24,5 @@ build-installtest/
 Thumbs.db
 builddir/
 /default.png
+/subprojects/libfprint/
+/subprojects/libgusb/

@@ -79,7 +79,7 @@ body:
       options:
         - Inside the Singularity session, logged in through the greeter
         - Inside the Singularity session, started with singularity-labwc-session from a TTY
-        - Under another desktop (GNOME, KDE, ...)
+        - Under another desktop environment
         - Not sure
     validations:
       required: true

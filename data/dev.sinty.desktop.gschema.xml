@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
   <schema id="dev.sinty.desktop" path="/dev/sinty/desktop/">
+    <key name="screen-time-enabled" type="b">
+      <default>true</default>
+      <summary>Record screen time</summary>
+      <description>Record how long each app is used, for Wellbeing and parental controls. The data stays on this computer.</description>
+    </key>
     <key name="pinned-apps" type="as">
       <default>['dev.sinty.files.desktop', 'dev.sinty.photos.desktop', 'dev.sinty.music.desktop', 'dev.sinty.store.desktop', 'dev.sinty.write.desktop', 'dev.sinty.calculator.desktop']</default>
       <summary>Pinned Applications</summary>
@@ -116,6 +121,16 @@
       <default>''</default>
       <summary>URI of the background picture</summary>
     </key>
+    <key name="background-dynamic-uri" type="s">
+      <default>''</default>
+      <summary>Dynamic wallpaper</summary>
+      <description>URI of the dynamic wallpaper manifest (.dynamic.json, a time-based XML slideshow or an imported HEIC). While set, the shell keeps background-picture-uri pointing at the frame for the current time or appearance. Empty for a still wallpaper.</description>
+    </key>
+    <key name="dynamic-wallpaper-coordinates" type="s">
+      <default>''</default>
+      <summary>Dynamic Wallpaper Location</summary>
+      <description>Latitude and longitude ("45.46,9.19") used to follow the sun. Empty uses the coordinates of the time zone, without any network access.</description>
+    </key>
     <key name="background-attribution-title" type="s">
       <default>''</default>
       <summary>Attribution title for the current background</summary>
@@ -148,6 +163,31 @@
       <default>{}</default>
       <summary>Map of action names to custom accelerator strings</summary>
     </key>
+    <key name="custom-keybindings" type="a(ssssss)">
+      <default>[]</default>
+      <summary>User-defined global shortcuts</summary>
+      <description>Each entry is (id, name, accelerator, command, app id, desktop action). An entry runs the command line, or the named action of the app's desktop file when app id and action are set. An empty accelerator leaves the shortcut unbound.</description>
+    </key>
+    <key name="portal-global-shortcuts" type="a(ssss)">
+      <default>[]</default>
+      <summary>Global shortcuts granted to apps through the portal</summary>
+      <description>Each entry is (app id, shortcut id, description, accelerator). The shell binds the accelerator and forwards presses to the desktop portal, which tells the app. An empty accelerator keeps the shortcut granted but unbound.</description>
+    </key>
+    <key name="privacy-camera-enabled" type="b">
+      <default>true</default>
+      <summary>Camera access</summary>
+      <description>When off, the desktop portal reports the camera as disabled and sandboxed apps cannot ask to use it.</description>
+    </key>
+    <key name="privacy-microphone-enabled" type="b">
+      <default>true</default>
+      <summary>Microphone access</summary>
+      <description>When off, the desktop portal reports the microphone as disabled to sandboxed apps.</description>
+    </key>
+    <key name="privacy-location-enabled" type="b">
+      <default>true</default>
+      <summary>Location services</summary>
+      <description>When off, the desktop portal refuses every location request.</description>
+    </key>
     <key name="hand-control-enabled" type="b">
       <default>false</default>
       <summary>Hand Control</summary>
@@ -162,6 +202,16 @@
       <default>'disabled'</default>
       <summary>Background Effect</summary>
       <description>Material applied behind translucent desktop surfaces: disabled, glass, or blur.</description>
+    </key>
+    <key name="interface-density" type="s">
+      <choices>
+        <choice value="compact"/>
+        <choice value="medium"/>
+        <choice value="large"/>
+      </choices>
+      <default>"compact"</default>
+      <summary>Interface Density</summary>
+      <description>Size of rows, groups and pages in settings and apps: compact, medium or large.</description>
     </key>
     <key name="window-transparency" type="i">
       <range min="0" max="90"/>
@@ -226,6 +276,45 @@
       <summary>Dark Theme with Night Light</summary>
       <description>When enabled, the appearance switches to dark while the adaptive night light schedule is active.</description>
     </key>
+    <key name="night-light-schedule" type="s">
+      <choices>
+        <choice value="manual"/>
+        <choice value="sunset-sunrise"/>
+      </choices>
+      <default>'manual'</default>
+      <summary>Night Light Schedule</summary>
+      <description>Whether the adaptive night light uses the manual times or runs from sunset to sunrise.</description>
+    </key>
+    <key name="night-light-sun-from" type="s">
+      <default>'19:00'</default>
+      <summary>Sunset Time</summary>
+      <description>Local sunset time (HH:MM) computed by the shell for the sunset to sunrise schedule.</description>
+    </key>
+    <key name="night-light-sun-to" type="s">
+      <default>'07:00'</default>
+      <summary>Sunrise Time</summary>
+      <description>Local sunrise time (HH:MM) computed by the shell for the sunset to sunrise schedule.</description>
+    </key>
+    <key name="night-light-sun-source" type="s">
+      <default>''</default>
+      <summary>Sunset Source</summary>
+      <description>Where the sunset and sunrise times come from: location, timezone or empty when unknown.</description>
+    </key>
+    <key name="output-hdr" type="a{sb}">
+      <default>{}</default>
+      <summary>HDR per Display</summary>
+      <description>Displays with HDR turned on, keyed by the display identity (make, model and serial) or the connector name.</description>
+    </key>
+    <key name="output-sdr-brightness" type="a{si}">
+      <default>{}</default>
+      <summary>SDR Brightness per Display</summary>
+      <description>Brightness of standard content in nits while HDR is on, keyed like output-hdr.</description>
+    </key>
+    <key name="output-color-profiles" type="a{ss}">
+      <default>{}</default>
+      <summary>Color Profile per Display</summary>
+      <description>ICC profile file assigned to each display when colord is not used, keyed like output-hdr.</description>
+    </key>
     <key name="developer-mode" type="b">
       <default>false</default>
       <summary>Developer Mode</summary>
@@ -272,6 +361,11 @@
       <summary>Keyboard Repeat</summary>
       <description>Whether to enable keyboard repeat.</description>
     </key>
+    <key name="show-tour" type="b">
+      <default>true</default>
+      <summary>Show the Tour</summary>
+      <description>Whether to open the desktop tour at the next login. It is turned off once the tour opens.</description>
+    </key>
     <key name="accent-color" type="s">
       <default>'blue'</default>
       <summary>Accent Color</summary>
@@ -317,14 +411,19 @@
       <description>When enabled, the Settings button opens a dedicated Settings window instead of using the sidebar.</description>
     </key>
     <key name="quick-settings-tile-order" type="as">
-      <default>['wifi', 'bluetooth', 'theme', 'night-light', 'airplane-mode', 'keyboard-light', 'audio', 'power-profile', 'do-not-disturb', 'vpn', 'tiling', 'hotspot', 'game-mode']</default>
+      <default>['wifi', 'bluetooth', 'theme', 'night-light', 'airplane-mode', 'keyboard-light', 'audio', 'power-profile', 'do-not-disturb', 'vpn', 'tiling', 'hotspot', 'game-mode', 'stage-manager']</default>
       <summary>Quick settings tile order</summary>
       <description>Order of tiles in the quick settings editor.</description>
     </key>
     <key name="quick-settings-active-tiles" type="as">
-      <default>['wifi', 'bluetooth', 'theme', 'night-light', 'airplane-mode', 'keyboard-light', 'audio', 'power-profile', 'do-not-disturb', 'vpn', 'tiling', 'hotspot', 'game-mode']</default>
+      <default>['wifi', 'bluetooth', 'theme', 'night-light', 'airplane-mode', 'keyboard-light', 'audio', 'power-profile', 'do-not-disturb', 'vpn', 'tiling', 'hotspot', 'game-mode', 'stage-manager']</default>
       <summary>Visible quick settings tiles</summary>
       <description>Tiles shown in quick settings.</description>
+    </key>
+    <key name="stage-manager" type="b">
+      <default>false</default>
+      <summary>Window groups</summary>
+      <description>Keep windows in groups, show one group at a time and the others as thumbnails in a strip on the left.</description>
     </key>
     <key name="quick-settings-compact" type="b">
       <default>false</default>
@@ -346,6 +445,40 @@
       <default>false</default>
       <summary>Screen Reader</summary>
       <description>Whether the screen reader (orca) is enabled.</description>
+    </key>
+    <key name="always-show-focus" type="b">
+      <default>false</default>
+      <summary>Always Show Keyboard Focus</summary>
+      <description>Keep the keyboard focus ring visible after using the pointer.</description>
+    </key>
+    <key name="accessibility-menu" type="b">
+      <default>false</default>
+      <summary>Always Show the Accessibility Menu</summary>
+      <description>Show the accessibility menu in the top bar even when no accessibility feature is on.</description>
+    </key>
+    <key name="reduce-motion" type="b">
+      <default>false</default>
+      <summary>Reduce Motion</summary>
+      <description>Replace movement, scaling and bouncing with short fades across the desktop and Singularity apps.</description>
+    </key>
+    <key name="motion-duration-scale" type="d">
+      <range min="0.1" max="10.0"/>
+      <default>1.0</default>
+      <summary>Animation Duration Multiplier</summary>
+      <description>Multiplies every Singularity animation duration. Values above 1 slow animations down for debugging.</description>
+    </key>
+    <key name="color-filter" type="s">
+      <choices>
+        <choice value="none"/>
+        <choice value="invert"/>
+        <choice value="grayscale"/>
+        <choice value="deuteranopia"/>
+        <choice value="protanopia"/>
+        <choice value="tritanopia"/>
+      </choices>
+      <default>"none"</default>
+      <summary>Color Filter</summary>
+      <description>Color filter applied to the whole screen.</description>
     </key>
     <key name="gamemode-auto" type="b">
       <default>false</default>
@@ -379,6 +512,16 @@
       <summary>Tiling Gap</summary>
       <description>Space between tiled windows.</description>
     </key>
+    <key name="snap-layouts" type="b">
+      <default>true</default>
+      <summary>Snap Layouts</summary>
+      <description>Show a layout picker when the pointer rests on the maximize button or a window is dragged to the top edge.</description>
+    </key>
+    <key name="snap-assist" type="b">
+      <default>true</default>
+      <summary>Suggest Windows After Snapping</summary>
+      <description>After snapping a window, offer the other open windows to fill the remaining zones.</description>
+    </key>
     <key name="window-border-width" type="i">
       <range min="0" max="8"/>
       <default>3</default>
@@ -394,6 +537,16 @@
       <default>['mpris-dock', 'downloads-dock', 'telegram-dock', 'launcher-entry-dock', 'tray-icons', 'emoji-search', 'tailscale', 'exe-icon']</default>
       <summary>Enabled Plugins</summary>
       <description>List of enabled plugin module names.</description>
+    </key>
+    <key name="disabled-plugins" type="as">
+      <default>[]</default>
+      <summary>Disabled app plugins</summary>
+      <description>Plugins shipped by apps that the user turned off. App plugins are enabled unless listed here.</description>
+    </key>
+    <key name="search-provider-overrides" type="a{sb}">
+      <default>{}</default>
+      <summary>Search provider choices</summary>
+      <description>Search providers the user turned on or off, by provider id. Providers not listed follow their manifest default.</description>
     </key>
     <key name="dock-pinned-suffixes" type="as">
       <default>[]</default>
@@ -449,6 +602,11 @@
       <default>false</default>
       <summary>Hotspot WPA3</summary>
       <description>When enabled, the Wi-Fi hotspot uses WPA3 (SAE) instead of WPA2.</description>
+    </key>
+    <key name="dynamic-internet-enabled" type="b">
+      <default>false</default>
+      <summary>Dynamic Internet</summary>
+      <description>Keep available uplinks active and move new traffic to the healthiest connection.</description>
     </key>
     <key name="window-states" type="a{s(iib)}">
       <default>{}</default>
@@ -573,6 +731,58 @@
       <summary>Check spelling</summary>
       <description>Underline misspelled words in text fields and offer corrections in their context menu.</description>
     </key>
+    <key name="gestures-enabled" type="b">
+      <default>true</default>
+      <summary>Touchpad gestures</summary>
+      <description>Switch workspaces and open the overview and launcher by swiping with several fingers.</description>
+    </key>
+    <key name="gesture-fingers" type="s">
+      <choices>
+        <choice value="3"/>
+        <choice value="4"/>
+        <choice value="both"/>
+      </choices>
+      <default>'4'</default>
+      <summary>Fingers for desktop gestures</summary>
+      <description>How many fingers switch workspaces and open the overview: 3, 4 or both. Other finger counts reach applications.</description>
+    </key>
+    <key name="gesture-direction" type="s">
+      <choices>
+        <choice value="natural"/>
+        <choice value="inverted"/>
+        <choice value="follow-scroll"/>
+      </choices>
+      <default>'natural'</default>
+      <summary>Gesture direction</summary>
+      <description>natural: content follows the fingers; inverted: the opposite; follow-scroll: inverted only when natural scrolling is off.</description>
+    </key>
+    <key name="gesture-two-dimensional" type="b">
+      <default>true</default>
+      <summary>Two-dimensional gestures</summary>
+      <description>Change direction during a swipe: switch workspace and then open the overview, or move between workspaces inside the overview, in one movement.</description>
+    </key>
+    <key name="gesture-sensitivity" type="d">
+      <range min="0.5" max="2.0"/>
+      <default>1.0</default>
+      <summary>Gesture sensitivity</summary>
+      <description>How far the fingers travel for one workspace or one overview step.</description>
+    </key>
+    <key name="gesture-threshold" type="d">
+      <range min="8" max="32"/>
+      <default>16</default>
+      <summary>Gesture direction threshold</summary>
+      <description>Distance travelled before a gesture picks its first direction.</description>
+    </key>
+    <key name="media-exclusive-playback" type="b">
+      <default>true</default>
+      <summary>Play one media source at a time</summary>
+      <description>Pause other media players when one starts playing.</description>
+    </key>
+    <key name="mono-audio" type="b">
+      <default>false</default>
+      <summary>Mono audio</summary>
+      <description>Mix stereo sound down to mono and play it on every speaker.</description>
+    </key>
     <key name="spell-autocorrect" type="b">
       <default>false</default>
       <summary>Correct spelling automatically</summary>
@@ -583,6 +793,17 @@
       <summary>Show spelling suggestions</summary>
       <description>Show corrections for the word being typed, under the word or above the screen keyboard.</description>
     </key>
+    <key name="shortcut-cheatsheet-hold" type="b">
+      <default>true</default>
+      <summary>Hold Super for shortcuts</summary>
+      <description>Holding the Super key on its own shows the desktop shortcuts and the shortcuts of the focused app.</description>
+    </key>
+    <key name="shortcut-cheatsheet-delay" type="u">
+      <range min="300" max="3000"/>
+      <default>800</default>
+      <summary>Hold delay for the shortcuts overview</summary>
+      <description>How long Super must be held, in milliseconds, before the shortcuts overview appears.</description>
+    </key>
     <key name="press-hold-accents" type="b">
       <default>true</default>
       <summary>Hold keys for accents</summary>
@@ -592,6 +813,83 @@
       <default>[]</default>
       <summary>Spell checking languages</summary>
       <description>Dictionary language tags such as en_US or it_IT; empty follows the session language.</description>
+    </key>
+    <key name="spell-check-all-apps" type="b">
+      <default>true</default>
+      <summary>Check spelling in all apps</summary>
+      <description>Suggest corrections for the word being typed in apps that do not check spelling themselves, through the desktop input method.</description>
+    </key>
+    <key name="spell-skip-apps" type="as">
+      <default>[]</default>
+      <summary>Apps skipped by desktop spell checking</summary>
+      <description>App ids that check spelling on their own. Apps whose id starts with dev.sinty. are always skipped.</description>
+    </key>
+    <key name="input-method-engines" type="as">
+      <default>[]</default>
+      <summary>Input methods</summary>
+      <description>Input method engines to switch between, as framework:engine such as fcitx5:pinyin or ibus:hangul.</description>
+    </key>
+    <key name="input-method-framework" type="s">
+      <choices>
+        <choice value="auto"/>
+        <choice value="fcitx5"/>
+        <choice value="ibus"/>
+      </choices>
+      <default>'auto'</default>
+      <summary>Input method framework</summary>
+      <description>Which installed input method framework provides engines. auto offers every installed one.</description>
+    </key>
+    <key name="input-method-show-indicator" type="b">
+      <default>true</default>
+      <summary>Show the input method in the panel</summary>
+      <description>Show the current input method in the panel when input methods are added.</description>
+    </key>
+    <key name="dictation-enabled" type="b">
+      <default>true</default>
+      <summary>Dictation</summary>
+      <description>Allow dictation with its keyboard shortcut.</description>
+    </key>
+    <key name="dictation-engine" type="s">
+      <choices>
+        <choice value="auto"/>
+        <choice value="whisper"/>
+        <choice value="vosk"/>
+        <choice value="command"/>
+      </choices>
+      <default>'auto'</default>
+      <summary>Speech engine</summary>
+      <description>Speech recognition engine used for dictation. Recognition always runs on this computer.</description>
+    </key>
+    <key name="dictation-model" type="s">
+      <default>''</default>
+      <summary>Speech model</summary>
+      <description>Name or path of the installed speech model; empty picks the first installed one.</description>
+    </key>
+    <key name="dictation-language" type="s">
+      <default>'auto'</default>
+      <summary>Dictation language</summary>
+      <description>Language code such as en or it, or auto to let the engine detect it.</description>
+    </key>
+    <key name="dictation-auto-punctuation" type="b">
+      <default>true</default>
+      <summary>Automatic punctuation</summary>
+      <description>Keep the punctuation added by the speech engine. Spoken commands such as comma or new line always work.</description>
+    </key>
+    <key name="dictation-auto-stop" type="b">
+      <default>true</default>
+      <summary>Stop when silent</summary>
+      <description>Stop dictation after a pause.</description>
+    </key>
+    <key name="dictation-silence-seconds" type="u">
+      <range min="1" max="30"/>
+      <default>3</default>
+      <summary>Pause before stopping</summary>
+      <description>Seconds of silence that stop dictation.</description>
+    </key>
+    <key name="dictation-command" type="s">
+      <default>''</default>
+      <summary>Custom speech engine</summary>
+      <description>A program that reads 16 kHz 16-bit mono audio on standard input and prints JSON lines with partial or text members. %l is replaced by the language.</description>
     </key>
     <key name="screen-keyboard-enabled" type="b">
       <default>false</default>
@@ -625,9 +923,14 @@
       <description>Icon theme used by the shell and all applications.</description>
     </key>
     <key name="cursor-theme" type="s">
-      <default>"Adwaita"</default>
+      <default>"Singularity"</default>
       <summary>Cursor theme name</summary>
       <description>Mouse cursor theme used by the shell and all applications.</description>
+    </key>
+    <key name="remember-recent-files" type="b">
+      <default>true</default>
+      <summary>Remember recently used files</summary>
+      <description>When disabled, apps and the dock do not keep or show a history of recently used files.</description>
     </key>
     <key name="global-menu-enabled" type="b">
       <default>true</default>
@@ -638,6 +941,145 @@
       <default>"auto"</default>
       <summary>Graphics rendering mode</summary>
       <description>auto, hardware or software. Software is a safe fallback for GPUs whose driver crashes the hardware renderer.</description>
+    </key>
+    <key name="lid-close-action" type="s">
+      <choices>
+        <choice value="suspend"/>
+        <choice value="lock"/>
+        <choice value="nothing"/>
+      </choices>
+      <default>'suspend'</default>
+      <summary>When the lid is closed</summary>
+      <description>What happens when the laptop lid is closed and no external display is connected: suspend, lock or nothing.</description>
+    </key>
+    <key name="lid-close-docked-action" type="s">
+      <choices>
+        <choice value="keep-working"/>
+        <choice value="suspend"/>
+      </choices>
+      <default>'keep-working'</default>
+      <summary>When the lid is closed with an external display</summary>
+      <description>keep-working turns off the built-in screen and keeps using the external displays; suspend puts the computer to sleep anyway.</description>
+    </key>
+    <key name="idle-dim-screen" type="b">
+      <default>true</default>
+      <summary>Dim the screen before it turns off</summary>
+      <description>Dim the screens shortly before they turn off for inactivity.</description>
+    </key>
+    <key name="screen-blank-ac" type="i">
+      <range min="0" max="86400"/>
+      <default>600</default>
+      <summary>Turn the screen off when plugged in</summary>
+      <description>Seconds of inactivity before the screens turn off while on AC power. 0 means never.</description>
+    </key>
+    <key name="screen-blank-battery" type="i">
+      <range min="0" max="86400"/>
+      <default>300</default>
+      <summary>Turn the screen off on battery</summary>
+      <description>Seconds of inactivity before the screens turn off while on battery. 0 means never.</description>
+    </key>
+    <key name="suspend-idle-ac" type="i">
+      <range min="0" max="86400"/>
+      <default>0</default>
+      <summary>Suspend when plugged in</summary>
+      <description>Seconds of inactivity before the computer suspends while on AC power. 0 means never.</description>
+    </key>
+    <key name="suspend-idle-battery" type="i">
+      <range min="0" max="86400"/>
+      <default>900</default>
+      <summary>Suspend on battery</summary>
+      <description>Seconds of inactivity before the computer suspends while on battery. 0 means never.</description>
+    </key>
+    <key name="power-button-action" type="s">
+      <choices>
+        <choice value="ask"/>
+        <choice value="suspend"/>
+        <choice value="power-off"/>
+        <choice value="lock"/>
+        <choice value="nothing"/>
+      </choices>
+      <default>'ask'</default>
+      <summary>When the power button is pressed</summary>
+      <description>ask shows the power off confirmation; suspend, power-off and lock act at once; nothing ignores the button.</description>
+    </key>
+    <key name="updates-automatic-check" type="b">
+      <default>true</default>
+      <summary>Check for updates automatically</summary>
+      <description>Look for operating system updates in the background at the chosen frequency.</description>
+    </key>
+    <key name="updates-check-frequency" type="s">
+      <choices>
+        <choice value="daily"/>
+        <choice value="weekly"/>
+      </choices>
+      <default>'daily'</default>
+      <summary>How often to check for updates</summary>
+      <description>daily or weekly.</description>
+    </key>
+    <key name="updates-automatic-download" type="b">
+      <default>false</default>
+      <summary>Download updates automatically</summary>
+      <description>Download operating system updates in the background when the connection is not metered. They are still installed only when the computer restarts.</description>
+    </key>
+    <key name="updates-last-check" type="x">
+      <default>0</default>
+      <summary>Last automatic update check</summary>
+      <description>Unix time of the last successful check for operating system updates.</description>
+    </key>
+    <key name="updates-notified" type="s">
+      <default>''</default>
+      <summary>Last announced update</summary>
+      <description>Internal marker so the same update is announced only once.</description>
+    </key>
+    <key name="text-recognition-languages" type="as">
+      <default>[]</default>
+      <summary>Text recognition languages</summary>
+      <description>Languages used to recognize text in images, as engine language codes such as eng or ita. Empty follows the system language.</description>
+    </key>
+    <key name="tablet-output" type="s">
+      <default>''</default>
+      <summary>Tablet screen</summary>
+      <description>Connector name of the screen the graphics tablet is mapped to. Empty maps it to all screens.</description>
+    </key>
+    <key name="tablet-keep-aspect" type="b">
+      <default>false</default>
+      <summary>Keep the tablet aspect ratio</summary>
+      <description>Shrink the active tablet area so that it has the same proportions as the mapped screen.</description>
+    </key>
+    <key name="tablet-left-handed" type="b">
+      <default>false</default>
+      <summary>Left-handed tablet</summary>
+      <description>Turn the tablet around by 180 degrees so that its buttons are on the right.</description>
+    </key>
+    <key name="tablet-area-custom" type="b">
+      <default>false</default>
+      <summary>Use a part of the tablet</summary>
+      <description>Use only the area in tablet-area instead of the whole tablet surface.</description>
+    </key>
+    <key name="tablet-area" type="(dddd)">
+      <default>(0.0, 0.0, 0.0, 0.0)</default>
+      <summary>Tablet area</summary>
+      <description>Left, top, width and height of the active tablet area in millimetres, as seen when the tablet is held normally.</description>
+    </key>
+    <key name="tablet-pressure-curve" type="(dddd)">
+      <default>(0.0, 0.0, 1.0, 1.0)</default>
+      <summary>Pen pressure curve</summary>
+      <description>Control points x1, y1, x2, y2 of the cubic Bezier curve from the pen pressure to the pressure sent to apps, each from 0 to 1.</description>
+    </key>
+    <key name="tablet-mouse-mode" type="b">
+      <default>false</default>
+      <summary>Pen moves like a mouse</summary>
+      <description>Move the pointer relative to where it is instead of jumping to the point under the pen.</description>
+    </key>
+    <key name="tablet-stylus-buttons" type="a{ss}">
+      <default>{}</default>
+      <summary>Pen button actions</summary>
+      <description>Action for each pen button (Stylus, Stylus2, Stylus3): left, right, middle, back or none. Missing buttons keep their default.</description>
+    </key>
+    <key name="tablet-pad-buttons" type="a{ss}">
+      <default>{}</default>
+      <summary>Tablet button actions</summary>
+      <description>Action for each tablet button (Pad, Pad2 to Pad9): a mouse button, none, action:NAME for a shell action or key:SHORTCUT for a keyboard shortcut. Missing buttons are sent to the app.</description>
     </key>
   </schema>
 </schemalist>

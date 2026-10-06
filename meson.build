@@ -6,6 +6,25 @@ project('singularity-desktop', ['vala', 'c'],
 gnome = import('gnome')
 i18n = import('i18n')
 fs = import('fs')
+
+glibc_compat = ['-include', meson.current_source_dir() / 'compat' / 'glibc-compat.h']
+glibc_compat_link = []
+is_glibc = meson.get_compiler('c').get_define('__GLIBC__', prefix: '#include <features.h>') != ''
+if not is_glibc or host_machine.cpu_family() != 'x86_64'
+  glibc_compat = []
+endif
+if is_glibc and host_machine.cpu_family() == 'x86_64'
+  foreach fn : ['atan2f', 'fmod', 'fmodf', 'hypot', 'hypotf', 'sqrtf']
+    glibc_compat_link += '-Wl,--wrap=' + fn
+  endforeach
+  glibc_compat_link += ['-Wl,--push-state,--no-as-needed', '-lm', '-Wl,--pop-state']
+endif
+add_global_arguments(glibc_compat, language: 'c')
+add_global_link_arguments(glibc_compat_link, language: 'c')
+if add_languages('cpp', required: false, native: false)
+  add_global_arguments(glibc_compat, language: 'cpp')
+  add_global_link_arguments(glibc_compat_link, language: 'cpp')
+endif
 subdir('data')
 subdir('po')
 
@@ -38,27 +57,24 @@ subproject('xdg-desktop-portal-singularity')
 subproject('singularity-polkit-agent')
 subproject('singularity-shell')
 
-subproject('singularity-files')
-subproject('singularity-calculator')
-subproject('singularity-clock')
+app_tiers = {'essential': 0, 'core': 1, 'extra': 2}
+app_limit = {'essential': 0, 'core': 1, 'all': 2}[get_option('apps')]
+app_entries = fs.read('apps.txt').strip().split('\n')
+if fs.is_file('apps.local.txt')
+  app_entries += fs.read('apps.local.txt').strip().split('\n')
+endif
+foreach entry : app_entries
+  fields = entry.strip().split()
+  if fields.length() == 2 and app_tiers[fields[1]] <= app_limit
+    subproject(fields[0])
+  endif
+endforeach
+
 subproject('singularity-greeter')
 subproject('singularity-splash')
-subproject('singularity-leafs')
 if get_option('installer')
   subproject('singularity-installer')
 endif
-# singularity-browser: archived until feature-complete
-# subproject('singularity-browser')
-subproject('singularity-edit')
-subproject('singularity-git')
-subproject('singularity-demo')
-subproject('singularity-videos')
-subproject('singularity-music')
-subproject('singularity-store')
-subproject('singularity-photos')
-subproject('singularity-monitor')
-subproject('singularity-write')
-subproject('singularity-calendar')
 
 # Built-in widgets (clock, calculator) live in the singularity-widgets submodule.
 subproject('singularity-widgets')
@@ -75,5 +91,9 @@ install_subdir('data/icons/hicolor',
   strip_directory: false)
 
 subproject('singularity-plugins')
+subproject('singularity-media-plugins')
 subproject('singularity-keyring')
+subproject('singularity-accounts')
+subproject('singularity-sharing')
+subproject('singularity-nearby')
 subproject('singularity-session')

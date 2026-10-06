@@ -1,0 +1,102 @@
+diff --git a/libfprint/tod/meson.build b/libfprint/tod/meson.build
+index 360351d..d02966a 100644
+--- a/libfprint/tod/meson.build
++++ b/libfprint/tod/meson.build
+@@ -5,6 +5,7 @@ tod_modules_prefix = get_option('libdir') / tod_subpath
+ tod_conf = configuration_data()
+ tod_conf.set_quoted('TOD_DRIVERS_DIR',
+     get_option('prefix') / get_option('libdir') / tod_subpath)
++tod_conf.set_quoted('TOD_EXTRA_DRIVERS_DIR', get_option('tod_extra_drivers_dir'))
+ configure_file(output: 'tod-config.h', configuration: tod_conf)
+ 
+ gmodule_dep = dependency('gmodule-2.0', version: '>=' + glib_min_version)
+diff --git a/libfprint/tod/tod-shared-loader.c b/libfprint/tod/tod-shared-loader.c
+index 7264755..388fe72 100644
+--- a/libfprint/tod/tod-shared-loader.c
++++ b/libfprint/tod/tod-shared-loader.c
+@@ -37,34 +37,39 @@ typedef GType (*FpiTodShardDriverTypeGetter) (void);
+ 
+ G_DEFINE_AUTOPTR_CLEANUP_FUNC (FpiTodModule, g_module_close);
+ 
+-static const char *
+-get_tod_drivers_dir (void)
++static GStrv
++get_tod_drivers_dirs (void)
+ {
+   const char *tod_env_path = g_getenv ("FP_TOD_DRIVERS_DIR");
++  g_autoptr(GStrvBuilder) builder = NULL;
+ 
+-  if (!tod_env_path || *tod_env_path == '\0')
+-    return TOD_DRIVERS_DIR;
++  if (tod_env_path && *tod_env_path != '\0')
++    return g_strsplit (tod_env_path, G_SEARCHPATH_SEPARATOR_S, -1);
+ 
+-  return tod_env_path;
++  builder = g_strv_builder_new ();
++  g_strv_builder_add (builder, TOD_DRIVERS_DIR);
++
++  if (*TOD_EXTRA_DRIVERS_DIR != '\0' &&
++      g_strcmp0 (TOD_EXTRA_DRIVERS_DIR, TOD_DRIVERS_DIR) != 0)
++    g_strv_builder_add (builder, TOD_EXTRA_DRIVERS_DIR);
++
++  return g_strv_builder_end (builder);
+ }
+ 
+-void
+-tod_shared_drivers_register (void)
++static void
++tod_shared_drivers_register_dir (const char *dirname)
+ {
+-  const char *dirname;
+   const char *basename;
+ 
+   g_autoptr(GError) error = NULL;
+   g_autoptr(GDir) dir = NULL;
+   gpointer symbol;
+ 
+-  g_assert_null (shared_drivers);
++  if (*dirname == '\0')
++    return;
+ 
+-  dirname = get_tod_drivers_dir ();
+   dir = g_dir_open (dirname, 0, &error);
+ 
+-  shared_drivers = g_array_new (TRUE, FALSE, sizeof (GType));
+-
+   if (error)
+     {
+       fp_dbg ("Impossible to load the shared drivers dir %s", error->message);
+@@ -142,6 +147,21 @@ tod_shared_drivers_register (void)
+     }
+ }
+ 
++void
++tod_shared_drivers_register (void)
++{
++  g_auto(GStrv) dirnames = NULL;
++  guint i;
++
++  g_assert_null (shared_drivers);
++
++  shared_drivers = g_array_new (TRUE, FALSE, sizeof (GType));
++  dirnames = get_tod_drivers_dirs ();
++
++  for (i = 0; dirnames[i] != NULL; i++)
++    tod_shared_drivers_register_dir (dirnames[i]);
++}
++
+ void
+ tod_shared_drivers_unregister (void)
+ {
+diff --git a/meson_options.txt b/meson_options.txt
+index a925a54..c4c1acb 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -40,3 +40,7 @@ option('tod',
+        description: 'Whether to build the TOD library',
+        type: 'boolean',
+        value: true)
++option('tod_extra_drivers_dir',
++       description: 'Additional directory scanned for TOD drivers after the default one',
++       type: 'string',
++       value: '')

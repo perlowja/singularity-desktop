@@ -121,3 +121,15 @@
 [submodule "subprojects/singularity-clock"]
 	path = subprojects/singularity-clock
 	url = https://github.com/singularityos-lab/singularity-clock.git
+[submodule "subprojects/singularity-accounts"]
+	path = subprojects/singularity-accounts
+	url = https://github.com/singularityos-lab/singularity-accounts.git
+[submodule "subprojects/singularity-sharing"]
+	path = subprojects/singularity-sharing
+	url = https://github.com/singularityos-lab/singularity-sharing.git
+[submodule "subprojects/singularity-nearby"]
+	path = subprojects/singularity-nearby
+	url = https://github.com/singularityos-lab/singularity-nearby.git
+[submodule "subprojects/singularity-media-plugins"]
+	path = subprojects/singularity-media-plugins
+	url = https://github.com/singularityos-lab/singularity-media-plugins.git

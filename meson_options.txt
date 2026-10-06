@@ -2,3 +2,5 @@ option('installer', type: 'boolean', value: false,
   description: 'Build and install the Sinty OS installer')
 option('gestures', type: 'feature', value: 'auto',
   description: 'Build hand and gaze gesture controls')
+option('apps', type: 'combo', choices: ['all', 'core', 'essential'], value: 'all',
+  description: 'Which bundled apps to build: all, core and essential only, or essential only')

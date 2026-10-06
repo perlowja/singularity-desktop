@@ -1,0 +1,14 @@
+singularity-files essential
+singularity-edit essential
+singularity-leafs essential
+singularity-store essential
+singularity-monitor essential
+singularity-calculator core
+singularity-clock core
+singularity-photos core
+singularity-videos core
+singularity-music core
+singularity-calendar core
+singularity-write extra
+singularity-git extra
+singularity-demo extra

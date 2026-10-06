@@ -69,6 +69,10 @@ for drv in /sys/class/drm/card[0-9]*/device/driver; do
 done
 _LLOG="\${HOME:-/var/lib/greetd}/labwc.log"
 [ -f "\$_LLOG" ] && mv -f "\$_LLOG" "\$_LLOG.1" 2>/dev/null || true
+_LOGIN_CFG=/var/lib/singularity/login-screen/labwc
+if [ -d "\$_LOGIN_CFG" ]; then
+    exec "$BIN/labwc" -C "\$_LOGIN_CFG" -s "$GREETD_DIR/greeter-session" >> "\$_LLOG" 2>&1
+fi
 exec "$BIN/labwc" -s "$GREETD_DIR/greeter-session" >> "\$_LLOG" 2>&1
 EOF
 chmod +x "$GREETD_DIR/start-greeter"

@@ -20,6 +20,7 @@ RUN apt-get update && \
       gettext \
       git \
       gobject-introspection \
+      libarchive-dev \
       libatspi2.0-dev \
       libcairo2-dev \
       libcmocka-dev \
@@ -34,7 +35,6 @@ RUN apt-get update && \
       libgee-0.8-dev \
       libgl-dev \
       libgles-dev \
-      libgoa-1.0-dev \
       libgstreamer-plugins-base1.0-dev \
       libgstreamer1.0-dev \
       libgtk-4-dev \

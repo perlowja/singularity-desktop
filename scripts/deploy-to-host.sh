@@ -6,17 +6,49 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-if [ "$EUID" -ne 0 ]; then
+DRY_RUN=0
+TEST_ROOT=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dry-run) DRY_RUN=1; shift ;;
+        --root) TEST_ROOT="$2"; shift 2 ;;
+        *) echo "usage: deploy-to-host.sh [--dry-run] [--root DIR]" >&2; exit 2 ;;
+    esac
+done
+TEST_ROOT="${TEST_ROOT:-$DEPLOY_ROOT}"
+
+if [ -n "$TEST_ROOT" ]; then
+    mkdir -p "$TEST_ROOT"
+    TEST_ROOT="$(cd "$TEST_ROOT" && pwd -P)"
+    case "$TEST_ROOT" in
+        /|/opt|/opt/*|/usr|/usr/*|/etc|/etc/*|/run/host|/run/host/*|"$HOME"|/home|/root)
+            echo "ERROR: --root must be a scratch directory, not $TEST_ROOT" >&2; exit 1 ;;
+    esac
+    if [ "$EUID" -eq 0 ]; then
+        echo "ERROR: --root is a test install; run it as a normal user" >&2
+        exit 1
+    fi
+    DEPLOY_PREFIX="$TEST_ROOT/opt/local"
+    ORIG_USER="$USER"
+    ORIG_HOME="$TEST_ROOT/home/$USER"
+    mkdir -p "$ORIG_HOME"
+fi
+
+if [ "$EUID" -ne 0 ] && [ "$DRY_RUN" -eq 0 ] && [ -z "$TEST_ROOT" ]; then
     if [ -n "$container" ]; then
-        exec host-spawn run0 \
+        exec host-spawn sh "$(dirname "$(readlink -f "$0")")/run0-tty.sh" \
             --setenv=ORIG_HOME="$HOME" \
             --setenv=ORIG_USER="$USER" \
+            --setenv=APPS="${APPS:-all}" \
+            --setenv=DEPLOY_PREFIX="${DEPLOY_PREFIX:-/opt/local}" \
             --setenv=container=host-spawned \
             bash "$0" "$@"
     else
-        exec run0 \
+        exec sh "$(dirname "$(readlink -f "$0")")/run0-tty.sh" \
             --setenv=ORIG_HOME="$HOME" \
             --setenv=ORIG_USER="$USER" \
+            --setenv=APPS="${APPS:-all}" \
+            --setenv=DEPLOY_PREFIX="${DEPLOY_PREFIX:-/opt/local}" \
             bash "$0" "$@"
     fi
 fi
@@ -31,7 +63,22 @@ fi
 REAL_UID="$(id -u "$REAL_USER" 2>/dev/null || echo "")"
 REAL_XDG_RUNTIME_DIR="${REAL_UID:+/run/user/$REAL_UID}"
 
+SYSROOT="$TEST_ROOT"
+
+host_only() {
+    if [ -n "$TEST_ROOT" ]; then
+        echo "  (test root) skipped: $*"
+        return 0
+    fi
+    "$@"
+}
+
 run_as_user() {
+    if [ -n "$TEST_ROOT" ]; then
+        env -u DBUS_SESSION_BUS_ADDRESS -u WAYLAND_DISPLAY -u DISPLAY -u XDG_RUNTIME_DIR \
+            HOME="$REAL_HOME" "$@"
+        return
+    fi
     local env_prefix=(env
         HOME="$REAL_HOME"
         XDG_RUNTIME_DIR="$REAL_XDG_RUNTIME_DIR"
@@ -43,7 +90,7 @@ run_as_user() {
     fi
 }
 
-PREFIX="/opt/local"
+PREFIX="${DEPLOY_PREFIX:-/opt/local}"
 OPT_BIN="$PREFIX/bin"
 OPT_LIB="$PREFIX/lib"
 OPT_SHARE="$PREFIX/share"
@@ -58,15 +105,60 @@ OPT_PLUGINS="$OPT_SING/plugins"
 OPT_WIDGETS_LIB="$OPT_LIB/singularity/widgets"
 OPT_WIDGETS_SHARE="$OPT_SING/widgets"
 OPT_APP_SETTINGS="$OPT_SING/app-settings"
+OPT_SEARCH_PROVIDERS="$OPT_SING/search-providers"
+OPT_FILES_ACTIONS="$OPT_SING/files-actions"
 OPT_PORTAL="$OPT_SHARE/xdg-desktop-portal/portals"
 OPT_DBUS="$OPT_SHARE/dbus-1/services"
 OPT_BACKGROUNDS="$OPT_SHARE/backgrounds/singularity"
 BUILD="$PROJECT_DIR/build"
 
+install_build_files() {
+    local extra=()
+    [ "$DRY_RUN" -eq 1 ] && extra+=(--dry-run)
+    APP_DBUS_SERVICES_FILE="$(mktemp)"
+    python3 "$PROJECT_DIR/scripts/deploy-installed.py" \
+        --info "$BUILD/meson-info" \
+        --prefix "$PREFIX" \
+        --sysroot "$SYSROOT" \
+        --skip "$SKIPPED_APPS" \
+        --dbus-list "$APP_DBUS_SERVICES_FILE" \
+        ${DEPLOY_MANIFEST:+--manifest "$DEPLOY_MANIFEST"} \
+        "${extra[@]}"
+    APP_DBUS_SERVICES="$(cat "$APP_DBUS_SERVICES_FILE")"
+    rm -f "$APP_DBUS_SERVICES_FILE"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        while IFS= read -r f; do
+            echo "  widget module: $f -> $OPT_WIDGETS_LIB/"
+        done < <(find "$BUILD" -maxdepth 3 -name 'libsingularity-*widget*.so' -type f 2>/dev/null)
+        for f in "$PROJECT_DIR"/subprojects/*/widget/*.widget \
+                 "$PROJECT_DIR"/subprojects/singularity-widgets/*/*.widget; do
+            [ -f "$f" ] && echo "  widget manifest: $f -> $OPT_WIDGETS_SHARE/"
+        done
+    fi
+    return 0
+}
+
+if [ "$DRY_RUN" -eq 1 ]; then
+    case "${APPS:-all}" in
+        essential) APP_TIER_LIMIT=0 ;;
+        core) APP_TIER_LIMIT=1 ;;
+        *) APP_TIER_LIMIT=2 ;;
+    esac
+    SKIPPED_APPS=""
+    while read -r app tier; do
+        [ -n "$app" ] || continue
+        case "$tier" in essential) rank=0 ;; core) rank=1 ;; *) rank=2 ;; esac
+        [ "$rank" -le "$APP_TIER_LIMIT" ] || SKIPPED_APPS="$SKIPPED_APPS $app"
+    done < <(cat "$PROJECT_DIR/apps.txt" "$PROJECT_DIR/apps.local.txt" 2>/dev/null)
+    echo "Dry run: every file the build installs and where a deploy to $PREFIX puts it"
+    install_build_files
+    exit 0
+fi
+
 mkdir -p "$OPT_BIN" "$OPT_LIB" "$OPT_APPS" "$OPT_ICONS" "$OPT_THEMES" \
          "$OPT_SCHEMAS" "$OPT_GIR" "$OPT_TYPELIB" "$OPT_SING" "$OPT_PLUGINS" \
          "$OPT_APP_SETTINGS" "$OPT_PORTAL" "$OPT_DBUS" "$OPT_BACKGROUNDS" \
-         "$OPT_WIDGETS_LIB" "$OPT_WIDGETS_SHARE"
+         "$OPT_WIDGETS_LIB" "$OPT_WIDGETS_SHARE" "$OPT_SEARCH_PROVIDERS" "$OPT_FILES_ACTIONS"
 
 acopy() {
     local src="$1" dest="$2"
@@ -74,14 +166,70 @@ acopy() {
     mv "$dest.new" "$dest"
 }
 
+SNAPSHOT="$PREFIX/.previous-deploy"
+SNAPSHOT_DIRS="bin lib libexec share/singularity/plugins"
+
+runtime_problems() {
+    local f out
+    for f in "$OPT_BIN"/* "$PREFIX"/libexec/* "$OPT_LIB"/*.so* "$OPT_LIB"/singularity/widgets/*.so "$OPT_LIB"/fprint/*.so* "$OPT_PLUGINS"/*/*.so; do
+        [ -f "$f" ] && [ ! -L "$f" ] || continue
+        [ "$(head -c 4 "$f" 2>/dev/null | tail -c 3)" = "ELF" ] || continue
+        out=$(LD_LIBRARY_PATH="$OPT_LIB/fprint:$OPT_LIB" ldd "$f" 2>&1 | grep -E "not found" | sed 's/^[[:space:]]*//' | sort -u)
+        [ -n "$out" ] && printf '%s\n' "$out" | sed "s|^|$(basename "$f"): |"
+    done
+    if [ -x "$OPT_BIN/labwc" ] && ! env -i PATH=/usr/bin:/bin LD_LIBRARY_PATH="$OPT_LIB" "$OPT_BIN/labwc" --version >/dev/null 2>&1; then
+        echo "labwc: does not start"
+    fi
+}
+
+take_snapshot() {
+    rm -rf "$SNAPSHOT"
+    mkdir -p "$SNAPSHOT"
+    local d
+    for d in $SNAPSHOT_DIRS; do
+        [ -d "$PREFIX/$d" ] || continue
+        mkdir -p "$(dirname "$SNAPSHOT/$d")"
+        cp -a "$PREFIX/$d" "$SNAPSHOT/$d"
+    done
+    runtime_problems | sort -u > "$SNAPSHOT/problems-before"
+}
+
+restore_snapshot() {
+    local d
+    for d in $SNAPSHOT_DIRS; do
+        [ -d "$SNAPSHOT/$d" ] || continue
+        rm -rf "$PREFIX/$d.failed"
+        [ -d "$PREFIX/$d" ] && mv "$PREFIX/$d" "$PREFIX/$d.failed"
+        cp -a "$SNAPSHOT/$d" "$PREFIX/$d"
+    done
+}
+
+check_runtime() {
+    local after new
+    after=$(runtime_problems | sort -u)
+    new=$(comm -13 "$SNAPSHOT/problems-before" <(printf '%s\n' "$after" | sed '/^$/d'))
+    if [ -z "$new" ]; then
+        echo "Runtime check passed: every installed binary and library resolves on this system."
+        return 0
+    fi
+    echo "" >&2
+    echo "ERROR: the new build does not run on this system:" >&2
+    printf '%s\n' "$new" | sed 's/^/  /' >&2
+    echo "" >&2
+    echo "Restoring the previous binaries and libraries so the next boot still reaches the greeter." >&2
+    restore_snapshot
+    echo "Restored. The rejected install is kept in $PREFIX/{bin,lib,libexec,share/singularity/plugins}.failed for inspection." >&2
+    exit 1
+}
+
 echo "Deploying Singularity to $PREFIX ..."
+take_snapshot
 
 echo "Installing binaries..."
 for bin in singularity-desktop \
-           singularity-region-picker singularity-screenshot \
+           singularity-region-picker singularity-screenshot singularity-recorder \
            singularity-hand-control singularity-gesture-lab \
-           singularity-polkit-agent singularity-greeter singularity-splash \
-           xdg-desktop-portal-singularity singularity-screencast-chooser; do
+           singularity-greeter singularity-splash; do
     bin_path=$(find "$BUILD" -name "$bin" -executable -type f | head -n 1)
     if [ -n "$bin_path" ]; then
         acopy "$bin_path" "$OPT_BIN/$bin"
@@ -94,17 +242,31 @@ lockscreen_path=$(find "$BUILD" -name singularity-lockscreen -executable -type f
     acopy "$lockscreen_path" "$OPT_BIN/singularity-lockscreen" && \
     echo "  singularity-lockscreen"
 
-if [ -f "$BUILD/subprojects/singularity-polkit-agent/singularity-polkit-auth-helper" ]; then
-    acopy "$BUILD/subprojects/singularity-polkit-agent/singularity-polkit-auth-helper" \
-          "$OPT_BIN/singularity-polkit-auth-helper"
-    echo "  singularity-polkit-auth-helper"
-fi
+case "${APPS:-all}" in
+    essential) APP_TIER_LIMIT=0 ;;
+    core) APP_TIER_LIMIT=1 ;;
+    all) APP_TIER_LIMIT=2 ;;
+    *) echo "ERROR: APPS must be all, core or essential (got '$APPS')" >&2; exit 1 ;;
+esac
+APP_LIST="singularity-browser singularity-dconf singularity-keyboard-reset singularity-keyring"
+SKIPPED_APPS=""
+while read -r app tier; do
+    [ -n "$app" ] || continue
+    case "$tier" in essential) rank=0 ;; core) rank=1 ;; *) rank=2 ;; esac
+    if [ "$rank" -le "$APP_TIER_LIMIT" ]; then
+        APP_LIST="$APP_LIST $app"
+    else
+        SKIPPED_APPS="$SKIPPED_APPS $app"
+    fi
+done < <(cat "$PROJECT_DIR/apps.txt" "$PROJECT_DIR/apps.local.txt" 2>/dev/null)
 
-APP_LIST="singularity-browser singularity-files singularity-edit singularity-calculator singularity-clock \
-          singularity-photos singularity-store singularity-monitor singularity-write \
-          singularity-videos singularity-leafs singularity-calendar singularity-music \
-          singularity-dconf singularity-demo singularity-keyboard-reset \
-          singularity-keyring singularity-git"
+is_skipped_path() {
+    local app
+    for app in $SKIPPED_APPS; do
+        [[ "$1" == "$PROJECT_DIR/subprojects/$app/"* ]] && return 0
+    done
+    return 1
+}
 
 for app in $APP_LIST; do
     app_path=""
@@ -118,6 +280,23 @@ for app in $APP_LIST; do
         echo "  $app"
     fi
 done
+RETIRED_APPS="singularity-markdown singularity-decoder"
+for app in $RETIRED_APPS; do
+    id="dev.sinty.${app#singularity-}"
+    if [ -e "$OPT_BIN/$app" ] || [ -e "$OPT_APPS/$id.desktop" ]; then
+        rm -f "$OPT_BIN/$app" "$OPT_APPS/$id.desktop" "$OPT_ICONS/hicolor/scalable/apps/$id.svg"
+        echo "  $app removed (retired)"
+    fi
+done
+for app in $SKIPPED_APPS; do
+    if [ -e "$OPT_BIN/$app" ]; then
+        rm -f "$OPT_BIN/$app"
+        echo "  $app removed (APPS=${APPS:-all})"
+    fi
+done
+
+echo "Installing everything the build installs..."
+install_build_files
 
 LABWC_BIN=""
 for p in "$PROJECT_DIR/subprojects/labwc/build/labwc" \
@@ -177,6 +356,8 @@ if [ -d "$BUILD/extra-libs" ]; then
     done
 fi
 
+bash "$PROJECT_DIR/scripts/install-fprint.sh" --prefix "$PREFIX" ${TEST_ROOT:+--dry-run} || echo "  WARNING: the fingerprint driver integration was not installed" >&2
+
 echo "Installing plugins..."
 for plugin_dir in "$BUILD/subprojects/singularity-plugins"/*/; do
     plugin_name="$(basename "$plugin_dir")"
@@ -190,6 +371,7 @@ for plugin_dir in "$BUILD/subprojects/singularity-plugins"/*/; do
     done
     echo "  $plugin_name"
 done
+
 
 echo "Installing overview widgets..."
 while IFS= read -r w; do
@@ -209,15 +391,6 @@ for schema in \
 done
 glib-compile-schemas "$OPT_SCHEMAS"
 
-echo "Installing AccountsService extension..."
-if mkdir -p /usr/share/accountsservice/interfaces 2>/dev/null && \
-   cp "$PROJECT_DIR/data/accountsservice/com.singularity.Desktop.xml" \
-      /usr/share/accountsservice/interfaces/ 2>/dev/null; then
-    echo "  com.singularity.Desktop.xml"
-else
-    echo "  skipped (/usr is read-only; ship the extension via the OS image)"
-fi
-
 echo "Installing CSS..."
 for css in style.css style.dark.css style.light.css; do
     [ -f "$PROJECT_DIR/subprojects/libsingularity/src/style/$css" ] && \
@@ -232,7 +405,7 @@ fi
 
 INTER_VER="4.1"
 INTER_DST="$REAL_HOME/.local/share/fonts/inter"
-if [ ! -f "$INTER_DST/Inter-Regular.ttf" ]; then
+if [ ! -f "$INTER_DST/Inter-Regular.ttf" ] && [ -z "$TEST_ROOT" ]; then
     echo "Installing Inter font..."
     INTER_TMP="$(mktemp -d)"
     if curl -sL --max-time 120 -o "$INTER_TMP/inter.zip" \
@@ -276,8 +449,12 @@ echo "Installing .desktop files..."
     echo "ERROR: subprojects/singularity-leafs is missing dev.sinty.leafs.desktop. Run: git submodule update --init --recursive" >&2
     exit 1
 }
-find "$PROJECT_DIR" -name "*.desktop" -type f | while read -r desktop; do
+find "$PROJECT_DIR" -path "$BUILD" -prune -o -name "*.desktop" -type f -print | while read -r desktop; do
     [[ "$desktop" == *"test"* ]] && continue
+    if is_skipped_path "$desktop"; then
+        rm -f "$OPT_APPS/$(basename "$desktop")"
+        continue
+    fi
     sed -E "s|^Exec=([a-z].*)$|Exec=$OPT_BIN/\1|" "$desktop" > "$OPT_APPS/$(basename "$desktop")"
 done
 update-desktop-database "$OPT_APPS" 2>/dev/null || true
@@ -290,10 +467,18 @@ done
 SCALABLE="$OPT_ICONS/hicolor/scalable/apps"
 mkdir -p "$SCALABLE"
 for icon_svg in "$PROJECT_DIR/apps/"*/data/icons/dev.sinty.*.svg "$PROJECT_DIR/subprojects/"*/data/icons/dev.sinty.*.svg; do
+    is_skipped_path "$icon_svg" && continue
     [ -f "$icon_svg" ] && cp "$icon_svg" "$SCALABLE/"
 done
 if [ -d "$PROJECT_DIR/subprojects/singularity-themes/Singularity" ]; then
     cp -r "$PROJECT_DIR/subprojects/singularity-themes/Singularity" "$OPT_ICONS/"
+    rm -rf "$OPT_ICONS/Singularity/cursors"
+    cp -r "$PROJECT_DIR/subprojects/singularity-themes/cursors/Singularity/cursors" "$OPT_ICONS/Singularity/"
+    python3 "$PROJECT_DIR/subprojects/singularity-themes/tools/accent-icons.py" "$OPT_ICONS/Singularity" "$OPT_ICONS" \
+        && echo "  accent folder variants" || echo "  warning: accent folder variants not generated"
+    for variant in "$OPT_ICONS"/Singularity-*/; do
+        [ -f "$variant/index.theme" ] && grep -q '^Hidden=true' "$variant/index.theme" && gtk-update-icon-cache -f "$variant" 2>/dev/null || true
+    done
 fi
 [ -f "$OPT_ICONS/hicolor/index.theme" ] || cp /usr/share/icons/hicolor/index.theme "$OPT_ICONS/hicolor/" 2>/dev/null || true
 gtk-update-icon-cache -f "$OPT_ICONS/hicolor" 2>/dev/null || true
@@ -325,7 +510,7 @@ if [ -f "$SING_GTK_BUILD/3.0/gtk.css" ]; then
 
     if command -v flatpak >/dev/null; then
         echo "Installing Flatpak GTK theme..."
-        run_as_user "$PROJECT_DIR/scripts/install-flatpak-theme.sh" "$SING_GTK_THEME"
+        host_only run_as_user "$PROJECT_DIR/scripts/install-flatpak-theme.sh" "$SING_GTK_THEME"
     fi
 fi
 
@@ -334,22 +519,26 @@ WP_DIR="$PROJECT_DIR/subprojects/singularity-wallpapers"
 for wp in "$WP_DIR/"*.svg "$WP_DIR/"*.png; do
     [ -f "$wp" ] && cp "$wp" "$OPT_BACKGROUNDS/"
 done
+for sample in waves aurora; do
+    rm -f "$OPT_BACKGROUNDS/dynamic/$sample/"*.svg "$OPT_BACKGROUNDS/dynamic/$sample/"*.dynamic.json
+    rmdir "$OPT_BACKGROUNDS/dynamic/$sample" 2>/dev/null || true
+done
+rmdir "$OPT_BACKGROUNDS/dynamic" 2>/dev/null || true
 
 echo "Installing app settings JSON..."
 for j in "$PROJECT_DIR"/subprojects/*/data/*.json; do
     [ -f "$j" ] && cp "$j" "$OPT_APP_SETTINGS/"
 done
 
+if [ -d "$OPT_SHARE/mime/packages" ] && command -v update-mime-database >/dev/null; then
+    update-mime-database "$OPT_SHARE/mime" >/dev/null 2>&1 && echo "  MIME database"
+fi
+
 echo "Installing portal files / D-Bus services..."
-cat > "$OPT_PORTAL/singularity.portal" <<EOF
-[portal]
-DBusName=org.freedesktop.impl.portal.desktop.singularity
-Interfaces=org.freedesktop.impl.portal.Screenshot;org.freedesktop.impl.portal.Settings;org.freedesktop.impl.portal.FileChooser;org.freedesktop.impl.portal.Notification;org.freedesktop.impl.portal.Inhibit;org.freedesktop.impl.portal.Access;org.freedesktop.impl.portal.Account;org.freedesktop.impl.portal.Email;org.freedesktop.impl.portal.Lockdown;org.freedesktop.impl.portal.Wallpaper;org.freedesktop.impl.portal.AppChooser;org.freedesktop.impl.portal.Print;org.freedesktop.impl.portal.DynamicLauncher;org.freedesktop.impl.portal.ScreenCast
-UseIn=Singularity
-EOF
+cp "$PROJECT_DIR/data/singularity.portal" "$OPT_PORTAL/singularity.portal"
 
 SYS_DBUS=""
-for d in /usr/share/dbus-1/services /usr/local/share/dbus-1/services; do
+for d in "$SYSROOT/usr/share/dbus-1/services" "$SYSROOT/usr/local/share/dbus-1/services"; do
     if mkdir -p "$d" 2>/dev/null && [ -w "$d" ]; then
         SYS_DBUS="$d"
         break
@@ -384,16 +573,16 @@ Name=org.freedesktop.secrets
 Exec=$OPT_BIN/singularity-keyring
 EOF
 
-cat > "$OPT_BIN/singularity-portal" <<'SPORTAL'
+sed "s|@PREFIX@|$PREFIX|g" > "$OPT_BIN/singularity-portal" <<'SPORTAL'
 #!/bin/bash
 export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
 export GDK_BACKEND=wayland
 export GSK_RENDERER=gl
 export GTK_A11Y=none
 export XDG_CURRENT_DESKTOP=Singularity
-export LD_LIBRARY_PATH="/opt/local/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-export GSETTINGS_SCHEMA_DIR="/opt/local/share/glib-2.0/schemas${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
-export XDG_DATA_DIRS="/opt/local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export LD_LIBRARY_PATH="@PREFIX@/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export GSETTINGS_SCHEMA_DIR="@PREFIX@/share/glib-2.0/schemas${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
+export XDG_DATA_DIRS="@PREFIX@/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 # Preload gtk4-layer-shell before libwayland-client or layer-shell init fails here.
 for ls in /usr/lib/x86_64-linux-gnu/libgtk4-layer-shell.so.0 \
           /usr/lib64/libgtk4-layer-shell.so.0 \
@@ -403,7 +592,7 @@ for ls in /usr/lib/x86_64-linux-gnu/libgtk4-layer-shell.so.0 \
         break
     fi
 done
-for c in /opt/local/bin /opt/bin /usr/local/bin /usr/bin; do
+for c in @PREFIX@/libexec @PREFIX@/bin /opt/bin /usr/local/libexec /usr/local/bin /usr/libexec /usr/bin; do
     if [ -x "$c/xdg-desktop-portal-singularity" ]; then
         exec "$c/xdg-desktop-portal-singularity"
     fi
@@ -412,11 +601,13 @@ exit 1
 SPORTAL
 chmod +x "$OPT_BIN/singularity-portal"
 
-echo "Installing session scripts..."
+echo "Checking session scripts..."
 SESSION_SRC="$PROJECT_DIR/subprojects/singularity-session"
 for s in singularity-desktop-session singularity-labwc-session; do
-    acopy "$SESSION_SRC/src/$s" "$OPT_BIN/$s"
-    chmod +x "$OPT_BIN/$s"
+    if [ ! -x "$OPT_BIN/$s" ]; then
+        echo "ERROR: $OPT_BIN/$s was not installed from the build; run make compile first" >&2
+        exit 1
+    fi
     echo "  $s"
 done
 
@@ -428,35 +619,35 @@ Exec=$OPT_BIN/singularity-labwc-session
 TryExec=$OPT_BIN/singularity-desktop
 Type=Application
 DesktopNames=Singularity"
-if mkdir -p /usr/share/wayland-sessions 2>/dev/null && \
-   printf '%s\n' "$SESSION_ENTRY" > /usr/share/wayland-sessions/singularity.desktop 2>/dev/null; then
-    echo "  /usr/share/wayland-sessions/singularity.desktop"
+if mkdir -p "$SYSROOT/usr/share/wayland-sessions" 2>/dev/null && \
+   printf '%s\n' "$SESSION_ENTRY" > "$SYSROOT/usr/share/wayland-sessions/singularity.desktop" 2>/dev/null; then
+    echo "  $SYSROOT/usr/share/wayland-sessions/singularity.desktop"
 else
     mkdir -p "$OPT_SHARE/wayland-sessions"
     printf '%s\n' "$SESSION_ENTRY" > "$OPT_SHARE/wayland-sessions/singularity.desktop"
     echo "  $OPT_SHARE/wayland-sessions/singularity.desktop (/usr is read-only)"
-    if mkdir -p /etc/systemd/system/gdm.service.d 2>/dev/null; then
+    if mkdir -p "$SYSROOT/etc/systemd/system/gdm.service.d" 2>/dev/null; then
         printf '%s\n' "[Service]" \
             "Environment=\"XDG_DATA_DIRS=/var/lib/flatpak/exports/share:$OPT_SHARE:/usr/local/share:/usr/share\"" \
-            > /etc/systemd/system/gdm.service.d/singularity-session.conf
+            > "$SYSROOT/etc/systemd/system/gdm.service.d/singularity-session.conf"
         echo "  GDM XDG_DATA_DIRS override"
-        command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload 2>/dev/null || true
+        command -v systemctl >/dev/null 2>&1 && host_only systemctl daemon-reload 2>/dev/null || true
     fi
 fi
 
-install -D -m 0644 "$PROJECT_DIR/data/udev/60-singularity-ddc.rules" /etc/udev/rules.d/60-singularity-ddc.rules
-install -D -m 0644 "$PROJECT_DIR/data/udev/singularity-ddc.conf" /etc/modules-load.d/singularity-ddc.conf
-modprobe i2c-dev 2>/dev/null || true
+host_only modprobe i2c-dev 2>/dev/null || true
 if command -v udevadm >/dev/null 2>&1; then
-    udevadm control --reload 2>/dev/null || true
-    udevadm trigger --subsystem-match=i2c-dev 2>/dev/null || true
+    host_only udevadm control --reload 2>/dev/null || true
+    host_only udevadm trigger --subsystem-match=i2c-dev 2>/dev/null || true
 fi
 echo "  external display brightness (DDC/CI) access"
 
 echo "Installing per-user config for $REAL_USER..."
 
 run_as_user mkdir -p "$REAL_HOME/.config/labwc"
-install -o "$REAL_USER" -g "$REAL_USER" -m 0644 \
+OWNER_ARGS=(-o "$REAL_USER" -g "$REAL_USER")
+[ -n "$TEST_ROOT" ] && OWNER_ARGS=()
+install "${OWNER_ARGS[@]}" -m 0644 \
     "$SESSION_SRC/config/labwc/themerc" "$REAL_HOME/.config/labwc/themerc"
 
 if command -v python3 >/dev/null 2>&1; then
@@ -469,26 +660,24 @@ fi
 
 PORTALS_CONF_DIR="$REAL_HOME/.config/xdg-desktop-portal"
 run_as_user mkdir -p "$PORTALS_CONF_DIR"
-cat > "$PORTALS_CONF_DIR/singularity-portals.conf" <<EOF
-[preferred]
-default=singularity;gtk
-org.freedesktop.impl.portal.Screenshot=singularity
-org.freedesktop.impl.portal.Settings=singularity
-org.freedesktop.impl.portal.FileChooser=singularity
-org.freedesktop.impl.portal.AppChooser=singularity
-org.freedesktop.impl.portal.OpenURI=singularity
-org.freedesktop.impl.portal.ScreenCast=singularity
-EOF
-chown "$REAL_USER:$REAL_USER" "$PORTALS_CONF_DIR/singularity-portals.conf"
+{
+    cat "$PROJECT_DIR/data/singularity-portals.conf"
+    echo
+    for iface in Screenshot Settings FileChooser AppChooser OpenURI ScreenCast; do
+        grep -q "^org.freedesktop.impl.portal.$iface=" "$PROJECT_DIR/data/singularity-portals.conf" || \
+            echo "org.freedesktop.impl.portal.$iface=singularity"
+    done
+} | sed '/^$/d' > "$PORTALS_CONF_DIR/singularity-portals.conf"
+host_only chown "$REAL_USER:$REAL_USER" "$PORTALS_CONF_DIR/singularity-portals.conf"
 
-ETC_USER_DIR="/etc/systemd/user"
+ETC_USER_DIR="$SYSROOT/etc/systemd/user"
 mkdir -p "$ETC_USER_DIR"
 
-run_as_user systemctl --user stop singularity-polkit-agent.service 2>/dev/null || true
-run_as_user systemctl --user disable singularity-polkit-agent.service 2>/dev/null || true
-run_as_user systemctl --user stop singularity-keyring.service 2>/dev/null || true
-run_as_user systemctl --user disable singularity-keyring.service 2>/dev/null || true
-systemctl --global disable singularity-keyring.service 2>/dev/null || true
+host_only run_as_user systemctl --user stop singularity-polkit-agent.service 2>/dev/null || true
+host_only run_as_user systemctl --user disable singularity-polkit-agent.service 2>/dev/null || true
+host_only run_as_user systemctl --user stop singularity-keyring.service 2>/dev/null || true
+host_only run_as_user systemctl --user disable singularity-keyring.service 2>/dev/null || true
+host_only systemctl --global disable singularity-keyring.service 2>/dev/null || true
 rm -f "$REAL_HOME/.config/systemd/user/singularity-polkit-agent.service"
 rm -f "$REAL_HOME/.config/systemd/user/singularity-keyring.service" \
       "$REAL_HOME/.config/systemd/user/xdg-desktop-portal-singularity.service"
@@ -498,6 +687,20 @@ USER_DBUS_DIR="$REAL_HOME/.local/share/dbus-1/services"
 run_as_user mkdir -p "$USER_DBUS_DIR"
 run_as_user cp "$OPT_DBUS/org.freedesktop.secrets.service" \
     "$USER_DBUS_DIR/org.freedesktop.secrets.service"
+for name in $APP_DBUS_SERVICES; do
+    [ -f "$OPT_DBUS/$name" ] && run_as_user cp "$OPT_DBUS/$name" "$USER_DBUS_DIR/$name"
+done
+if [ -z "$TEST_ROOT" ]; then
+    run_as_user gdbus call --session --dest org.freedesktop.DBus \
+        --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.ReloadConfig >/dev/null 2>&1 && \
+        echo "  session bus reloaded its service files"
+    accounts_pid=$(run_as_user gdbus call --session --dest org.freedesktop.DBus \
+        --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.GetConnectionUnixProcessID \
+        dev.sinty.Accounts 2>/dev/null | sed -nE 's/.*uint32 ([0-9]+).*/\1/p')
+    if [ -n "$accounts_pid" ] && [ "$accounts_pid" -gt 1 ]; then
+        kill "$accounts_pid" 2>/dev/null && echo "  restarted singularity-accounts (starts again on next use)"
+    fi
+fi
 
 cat > "$ETC_USER_DIR/xdg-desktop-portal-singularity.service" <<EOF
 [Unit]
@@ -513,7 +716,7 @@ Environment=GDK_BACKEND=wayland
 Environment=GSK_RENDERER=gl
 Environment=GTK_A11Y=none
 Environment=XDG_CURRENT_DESKTOP=Singularity
-Environment=LD_LIBRARY_PATH=/opt/local/lib
+Environment=LD_LIBRARY_PATH=$OPT_LIB
 ExecStart=$OPT_BIN/singularity-portal
 Restart=on-failure
 RestartSec=2
@@ -531,10 +734,12 @@ Wants=graphical-session-pre.target
 After=graphical-session-pre.target
 EOF
 
-systemctl --global enable xdg-desktop-portal-singularity.service 2>/dev/null || true
-systemctl daemon-reload 2>/dev/null || true
-run_as_user systemctl --user daemon-reload 2>/dev/null || true
-run_as_user systemctl --user restart xdg-desktop-portal.service 2>/dev/null || true
+host_only systemctl --global enable xdg-desktop-portal-singularity.service 2>/dev/null || true
+host_only systemctl daemon-reload 2>/dev/null || true
+host_only gdbus call --system --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+    --method org.freedesktop.DBus.ReloadConfig >/dev/null 2>&1 || true
+host_only run_as_user systemctl --user daemon-reload 2>/dev/null || true
+host_only run_as_user systemctl --user restart xdg-desktop-portal.service 2>/dev/null || true
 
 LEGACY="$REAL_HOME/.local/singularity"
 if [ -d "$LEGACY" ]; then
@@ -562,6 +767,8 @@ if [ -d "$STALE_THEME" ]; then
     echo "Removing stale per-user theme $STALE_THEME ..."
     rm -rf "$STALE_THEME"
 fi
+
+check_runtime
 
 echo ""
 echo "Deploy complete."

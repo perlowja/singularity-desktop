@@ -39,6 +39,7 @@ RUN apt-get update && \
       libgl-dev \
       libgles-dev \
       libgnutls28-dev \
+      libgphoto2-dev \
       libgstreamer-plugins-base1.0-dev \
       libgstreamer1.0-dev \
       libgtk-4-dev \
@@ -68,12 +69,14 @@ RUN apt-get update && \
       libsoup-3.0-dev \
       libsqlite3-dev \
       libsystemd-dev \
+      libtiff-dev \
       libtracker-sparql-3.0-dev \
       libudev-dev \
       libupower-glib-dev \
       libvte-2.91-gtk4-dev \
       libwacom-dev \
       libwayland-dev \
+      libwebp-dev \
       libwebkitgtk-6.0-dev \
       libxcb-composite0-dev \
       libxcb-dri3-dev \

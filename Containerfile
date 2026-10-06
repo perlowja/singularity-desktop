@@ -24,25 +24,31 @@ RUN apt-get update && \
       libatspi2.0-dev \
       libcairo2-dev \
       libcmocka-dev \
+      libcups2-dev \
       libdbusmenu-glib-dev \
       libdisplay-info-dev \
       libdrm-dev \
       libenchant-2-dev \
       libevdev-dev \
       libfontconfig-dev \
+      libfuse3-dev \
       libgcrypt20-dev \
       libgdk-pixbuf-2.0-dev \
       libgee-0.8-dev \
+      libges-1.0-dev \
       libgl-dev \
       libgles-dev \
+      libgnutls28-dev \
       libgstreamer-plugins-base1.0-dev \
       libgstreamer1.0-dev \
       libgtk-4-dev \
       libgtk4-layer-shell-dev \
       libgtksourceview-5-dev \
       libgudev-1.0-dev \
+      libharfbuzz-dev \
       libinput-dev \
       libjson-glib-dev \
+      liblcms2-dev \
       libliftoff-dev \
       libmtdev-dev \
       libnm-dev \
@@ -60,6 +66,7 @@ RUN apt-get update && \
       libsfdo-dev \
       libsodium-dev \
       libsoup-3.0-dev \
+      libsqlite3-dev \
       libsystemd-dev \
       libtracker-sparql-3.0-dev \
       libudev-dev \
@@ -86,6 +93,7 @@ RUN apt-get update && \
       scdoc \
       valac \
       wayland-protocols \
+      zlib1g-dev \
       xwayland
 
 WORKDIR /source

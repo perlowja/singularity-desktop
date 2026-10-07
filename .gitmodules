@@ -244,3 +244,24 @@
 [submodule "subprojects/singularity-browser"]
 	path = subprojects/singularity-browser
 	url = https://github.com/singularityos-lab/singularity-browser.git
+[submodule "subprojects/singularity-atelier"]
+	path = subprojects/singularity-atelier
+	url = https://github.com/singularityos-lab/singularity-atelier.git
+[submodule "subprojects/singularity-keyframe"]
+	path = subprojects/singularity-keyframe
+	url = https://github.com/singularityos-lab/singularity-keyframe.git
+[submodule "subprojects/singularity-montage"]
+	path = subprojects/singularity-montage
+	url = https://github.com/singularityos-lab/singularity-montage.git
+[submodule "subprojects/singularity-publish"]
+	path = subprojects/singularity-publish
+	url = https://github.com/singularityos-lab/singularity-publish.git
+[submodule "subprojects/singularity-reader"]
+	path = subprojects/singularity-reader
+	url = https://github.com/singularityos-lab/singularity-reader.git
+[submodule "subprojects/singularity-vector"]
+	path = subprojects/singularity-vector
+	url = https://github.com/singularityos-lab/singularity-vector.git
+[submodule "subprojects/singularity-wave"]
+	path = subprojects/singularity-wave
+	url = https://github.com/singularityos-lab/singularity-wave.git

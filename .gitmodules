@@ -265,3 +265,6 @@
 [submodule "subprojects/singularity-wave"]
 	path = subprojects/singularity-wave
 	url = https://github.com/singularityos-lab/singularity-wave.git
+[submodule "subprojects/vetro"]
+	path = subprojects/vetro
+	url = https://github.com/singularityos-lab/vetro.git

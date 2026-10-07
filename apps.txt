@@ -49,3 +49,10 @@ singularity-draw extra
 singularity-slides extra
 singularity-database extra
 singularity-formula extra
+singularity-reader core
+singularity-publish extra
+singularity-atelier extra
+singularity-vector extra
+singularity-montage extra
+singularity-wave extra
+singularity-keyframe extra
